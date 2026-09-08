@@ -10,8 +10,6 @@ import {
 } from '@/lib/debug-events';
 import { installDebugFetch } from '@/lib/debug-fetch';
 
-const emptySubscribe = () => () => {};
-
 function formatMs(value?: number) {
   if (value === undefined) return '—';
   return value < 1000 ? `${value.toFixed(0)} ms` : `${(value / 1000).toFixed(2)} s`;
