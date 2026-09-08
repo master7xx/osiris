@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "node tools/run-live-tests.mjs",
-    "doctor": "node tools/windows-doctor.mjs"
+    "doctor": "node tools/windows-doctor.mjs",
+    "smoke:windows": "node tools/windows-smoke.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
