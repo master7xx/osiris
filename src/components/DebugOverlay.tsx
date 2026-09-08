@@ -15,6 +15,14 @@ function formatMs(value?: number) {
   return value < 1000 ? `${value.toFixed(0)} ms` : `${(value / 1000).toFixed(2)} s`;
 }
 
+function upstreamLabel(url: string, host: string) {
+  try {
+    return `${host}${new URL(url).pathname}`;
+  } catch {
+    return url;
+  }
+}
+
 function statusLabel(event: DebugRequestEvent) {
   if (event.status === 'pending') return 'RUN';
   if (event.status === 'ok') return String(event.httpStatus ?? 'OK');
@@ -51,6 +59,15 @@ export default function DebugOverlay() {
 
   const failures = events.filter(event => event.status === 'error' || event.status === 'aborted').length;
   const pending = events.filter(event => event.status === 'pending').length;
+
+  async function clearAll() {
+    clearDebugEvents();
+    try {
+      await fetch('/api/debug/events', { method: 'DELETE', cache: 'no-store' });
+    } catch {
+      // Server debug storage is optional.
+    }
+  }
 
   function exportLog() {
     const payload = {
@@ -104,7 +121,7 @@ export default function DebugOverlay() {
               style={{ marginLeft: 'auto', width: 220, background: '#111827', border: '1px solid #4b5563', color: '#fff', padding: 5 }}
             />
             <button onClick={exportLog}>EXPORT JSON</button>
-            <button onClick={clearDebugEvents}>CLEAR</button>
+            <button onClick={clearAll}>CLEAR</button>
             <button onClick={() => setOpen(false)}>CLOSE</button>
           </header>
           <div style={{ overflow: 'auto', flex: 1 }}>
@@ -140,7 +157,7 @@ export default function DebugOverlay() {
                       <td style={{ padding: '4px 8px 4px 22px', borderBottom: '1px solid #111827' }}>{new Date(upstream.startedAt).toLocaleTimeString()}</td>
                       <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{upstream.status ?? upstream.state.toUpperCase()}</td>
                       <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{upstream.method}</td>
-                      <td title={upstream.url} style={{ padding: '4px 8px 4px 22px', borderBottom: '1px solid #111827', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}>↳ {upstream.host}{new URL(upstream.url).pathname}</td>
+                      <td title={upstream.url} style={{ padding: '4px 8px 4px 22px', borderBottom: '1px solid #111827', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}>↳ {upstreamLabel(upstream.url, upstream.host)}</td>
                       <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{formatMs(upstream.durationMs)}</td>
                       <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>—</td>
                       <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>server</td>
