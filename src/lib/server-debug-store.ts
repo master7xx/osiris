@@ -16,12 +16,10 @@ interface DebugState {
 }
 
 const MAX_EVENTS = 1000;
-const globalKey = '__OSIRIS_SERVER_DEBUG_STATE__';
-
 function state(): DebugState {
-  const root = globalThis as typeof globalThis & { [globalKey]?: DebugState };
-  if (!root[globalKey]) root[globalKey] = { events: [] };
-  return root[globalKey]!;
+  const root = globalThis as typeof globalThis & { __OSIRIS_SERVER_DEBUG_STATE__?: DebugState };
+  if (!root.__OSIRIS_SERVER_DEBUG_STATE__) root.__OSIRIS_SERVER_DEBUG_STATE__ = { events: [] };
+  return root.__OSIRIS_SERVER_DEBUG_STATE__;
 }
 
 export function serverDebugEnabled() {
