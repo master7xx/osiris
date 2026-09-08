@@ -28,7 +28,8 @@ export function installDebugFetch() {
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const rawUrl = input instanceof Request ? input.url : String(input);
-    if (!isDebuggableEndpoint(rawUrl)) return originalFetch(input, init);
+    const parsed = new URL(rawUrl, window.location.origin);
+    if (parsed.origin !== window.location.origin || !isDebuggableEndpoint(rawUrl)) return originalFetch(input, init);
 
     const endpoint = sanitizeEndpoint(rawUrl);
     const startedAt = performance.now();
@@ -53,7 +54,8 @@ export function installDebugFetch() {
     });
 
     try {
-      const response = await originalFetch(input, { ...init, headers });
+      const request = input instanceof Request ? new Request(input, { ...init, headers }) : input;
+      const response = await originalFetch(request, input instanceof Request ? undefined : { ...init, headers });
       const durationMs = performance.now() - startedAt;
       updateDebugEvent(eventId, {
         status: response.ok ? 'ok' : 'error',
