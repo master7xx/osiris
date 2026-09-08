@@ -1,11 +1,10 @@
 'use client';
 
 import { memo, useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Plane, Satellite, Sun, AlertTriangle, Camera,
-  CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal
+  Plane, Satellite, Sun, AlertTriangle, Camera, CloudLightning, Ship,
+  Network, Ghost, Megaphone, SlidersHorizontal, Bug, Newspaper,
 } from 'lucide-react';
 import StyleStudio from './StyleStudio';
 
@@ -16,8 +15,6 @@ interface LayerPanelProps {
   isMobile?: boolean;
   theme?: 'core' | 'ghost';
   setTheme?: (theme: 'core' | 'ghost') => void;
-  /** Server-side capabilities, e.g. { cloudflare: true }. Layers declaring a
-   *  `requires` key stay hidden until the matching capability is present. */
   capabilities?: Record<string, boolean>;
 }
 
@@ -25,12 +22,8 @@ interface LayerDef {
   key: string;
   label: string;
   dataKey: string;
-  /** Reads a bucket out of data.category_counts instead of a top-level array. */
   catKey?: string;
-  /** Capability that must be configured server-side for this layer to appear. */
   requires?: string;
-  /** Key of the layer this one modifies. Renders indented beneath it, and reads
-   *  as inert while that parent is off — it has nothing to act on. */
   parent?: string;
 }
 
@@ -41,429 +34,193 @@ interface LayerGroupDef {
   layers: LayerDef[];
 }
 
-const LAYER_GROUPS: LayerGroupDef[] = [
-  {
-    label: 'SDK',
-    fullLabel: 'OSIRIS SDK',
-    icon: Network,
-    layers: [
-      { key: 'sdk_sea', label: 'Maritime Lines', dataKey: 'sdk_entities' },
-    ],
-  },
-  {
-    label: 'AVIATION',
-    fullLabel: 'AVIATION',
-    icon: Plane,
-    layers: [
-      { key: 'flights', label: 'Commercial', dataKey: 'commercial_flights' },
-      { key: 'private', label: 'Private', dataKey: 'private_flights' },
-      { key: 'jets', label: 'Private Jets', dataKey: 'private_jets' },
-      { key: 'military', label: 'Military', dataKey: 'military_flights' },
-    ],
-  },
-  {
-    label: 'MARITIME',
-    fullLabel: 'MARITIME',
-    icon: Ship,
-    layers: [
-      { key: 'maritime', label: 'Maritime / Naval', dataKey: 'maritime_ships,maritime_ports,maritime_chokepoints' },
-    ],
-  },
-  {
-    label: 'SPACE',
-    fullLabel: 'SPACE TRACKING',
-    icon: Satellite,
-    layers: [
-      { key: 'satellites', label: 'All Satellites', dataKey: 'satellites' },
-      { key: 'sat_comms', label: 'Starlink / Comms', dataKey: 'satellites', catKey: 'comms' },
-      { key: 'sat_military', label: 'Military / Intel', dataKey: 'satellites', catKey: 'military' },
-      { key: 'sat_navigation', label: 'GPS / Navigation', dataKey: 'satellites', catKey: 'navigation' },
-      { key: 'sat_earth', label: 'Earth Observation', dataKey: 'satellites', catKey: 'earth_obs' },
-      { key: 'sat_science', label: 'Stations / Telescopes', dataKey: 'satellites', catKey: 'science' },
-    ],
-  },
-  {
-    label: 'SURVEIL',
-    fullLabel: 'SURVEILLANCE',
-    icon: Camera,
-    layers: [
-      { key: 'cctv', label: 'CCTV Cameras', dataKey: 'cameras' },
-      { key: 'cctv_previews', label: 'Live Previews', dataKey: '', parent: 'cctv' },
-      { key: 'live_news', label: 'Live News Feeds', dataKey: 'live_feeds' },
-    ],
-  },
-  {
-    label: 'HAZARD',
-    fullLabel: 'NATURAL HAZARDS',
-    icon: CloudLightning,
-    layers: [
-      { key: 'earthquakes', label: 'Earthquakes', dataKey: 'earthquakes' },
-      { key: 'fires', label: 'Active Fires', dataKey: 'fires' },
-      { key: 'weather', label: 'Severe Weather', dataKey: 'weather_events' },
-    ],
-  },
-  {
-    label: 'THREAT',
-    fullLabel: 'THREATS & INTEL',
-    icon: AlertTriangle,
-    layers: [
-      { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },
-      { key: 'global_incidents', label: 'Global Incidents', dataKey: 'gdelt' },
-      { key: 'gdelt_events', label: 'GDELT Events', dataKey: 'gdelt_events' },
-    ],
-  },
-  {
-    label: 'NETWORK',
-    fullLabel: 'NETWORK INTEL',
-    icon: Network,
-    layers: [
-      { key: 'malware', label: 'Live Malware', dataKey: 'malware_threats' },
-      { key: 'cyber_attacks', label: 'Live Attacks', dataKey: 'cyber_attacks' },
-    ],
-  },
-  {
-    label: 'NETINTEL',
-    fullLabel: 'NET & EVENT INTEL',
-    icon: Megaphone,
-    layers: [
-      { key: 'cf_outages', label: 'Internet Outages', dataKey: 'cf_outages', requires: 'cloudflare' },
-      { key: 'cf_attacks', label: 'Attack Origins', dataKey: 'cf_attack_origins', requires: 'cloudflare' },
-    ],
-  },
-  {
-    label: 'DISPLAY',
-    fullLabel: 'DISPLAY',
-    icon: Sun,
-    layers: [
-      { key: 'day_night', label: 'Day / Night Cycle', dataKey: '' },
-      { key: 'terrain_3d', label: '3D Terrain & Buildings', dataKey: '' },
-    ],
-  },
+const GROUPS: LayerGroupDef[] = [
+  { label: 'SDK', fullLabel: 'OSIRIS SDK', icon: Network, layers: [
+    { key: 'sdk_sea', label: 'Maritime Lines', dataKey: 'sdk_entities' },
+  ]},
+  { label: 'AVIATION', fullLabel: 'AVIATION', icon: Plane, layers: [
+    { key: 'flights', label: 'Commercial', dataKey: 'commercial_flights' },
+    { key: 'private', label: 'Private', dataKey: 'private_flights' },
+    { key: 'jets', label: 'Private Jets', dataKey: 'private_jets' },
+    { key: 'military', label: 'Military', dataKey: 'military_flights' },
+  ]},
+  { label: 'MARITIME', fullLabel: 'MARITIME', icon: Ship, layers: [
+    { key: 'maritime', label: 'Maritime / Naval', dataKey: 'maritime_ships,maritime_ports,maritime_chokepoints' },
+  ]},
+  { label: 'SPACE', fullLabel: 'SPACE TRACKING', icon: Satellite, layers: [
+    { key: 'satellites', label: 'All Satellites', dataKey: 'satellites' },
+    { key: 'sat_comms', label: 'Starlink / Comms', dataKey: 'satellites', catKey: 'comms' },
+    { key: 'sat_military', label: 'Military / Intel', dataKey: 'satellites', catKey: 'military' },
+    { key: 'sat_navigation', label: 'GPS / Navigation', dataKey: 'satellites', catKey: 'navigation' },
+    { key: 'sat_earth', label: 'Earth Observation', dataKey: 'satellites', catKey: 'earth_obs' },
+    { key: 'sat_science', label: 'Stations / Telescopes', dataKey: 'satellites', catKey: 'science' },
+  ]},
+  { label: 'SURVEIL', fullLabel: 'SURVEILLANCE & NEWS', icon: Camera, layers: [
+    { key: 'cctv', label: 'CCTV Cameras', dataKey: 'cameras' },
+    { key: 'cctv_previews', label: 'Live Previews', dataKey: '', parent: 'cctv' },
+    // Reuses the existing gdelt-events MapLibre renderer, now backed by the
+    // geolocated multi-source breaking-news endpoint.
+    { key: 'gdelt_events', label: 'Breaking News', dataKey: 'gdelt_events' },
+    { key: 'live_news', label: 'Live News Feeds', dataKey: 'live_feeds' },
+  ]},
+  { label: 'HAZARD', fullLabel: 'NATURAL HAZARDS', icon: CloudLightning, layers: [
+    { key: 'earthquakes', label: 'Earthquakes', dataKey: 'earthquakes' },
+    { key: 'fires', label: 'Active Fires', dataKey: 'fires' },
+    { key: 'weather', label: 'Severe Weather', dataKey: 'weather_events' },
+  ]},
+  { label: 'THREAT', fullLabel: 'THREATS & INTEL', icon: AlertTriangle, layers: [
+    { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },
+    { key: 'global_incidents', label: 'Global Incidents', dataKey: 'gdelt' },
+  ]},
+  { label: 'NETWORK', fullLabel: 'NETWORK INTEL', icon: Network, layers: [
+    { key: 'malware', label: 'Live Malware', dataKey: 'malware_threats' },
+    { key: 'cyber_attacks', label: 'Live Attacks', dataKey: 'cyber_attacks' },
+  ]},
+  { label: 'NETINTEL', fullLabel: 'NET & EVENT INTEL', icon: Megaphone, layers: [
+    { key: 'cf_outages', label: 'Internet Outages', dataKey: 'cf_outages', requires: 'cloudflare' },
+    { key: 'cf_attacks', label: 'Attack Origins', dataKey: 'cf_attack_origins', requires: 'cloudflare' },
+  ]},
+  { label: 'DISPLAY', fullLabel: 'DISPLAY', icon: Sun, layers: [
+    { key: 'day_night', label: 'Day / Night Cycle', dataKey: '' },
+    { key: 'terrain_3d', label: '3D Terrain & Buildings', dataKey: '' },
+  ]},
 ];
 
-/* ── Minimal Toggle Switch ── */
-/**
- * Presentational only. The row around it is the button, and a button inside a
- * button is invalid HTML — the browser reparents it, which breaks hydration and
- * silently drops the click handler on the inner control.
- */
-function ToggleSwitch({ active }: { active: boolean }) {
+function Toggle({ active, blue = false }: { active: boolean; blue?: boolean }) {
+  const on = blue ? '#008CFF' : 'rgba(255,255,255,.88)';
   return (
-    <span
-      role="presentation"
-      className="relative flex-shrink-0 block"
-      style={{ width: 28, height: 14 }}
-    >
-      <div
-        className="absolute inset-0 rounded-full transition-all duration-300"
-        style={{
-          background: active ? 'rgba(255,255,255,0.2)' : 'transparent',
-          border: active ? '1px solid rgba(255,255,255,0.35)' : '1px solid rgba(255,255,255,0.12)',
-          boxShadow: active ? '0 0 8px rgba(255,255,255,0.1)' : 'none',
-        }}
-      />
-      <motion.div
+    <span className="relative flex-shrink-0 block" style={{ width: 30, height: 15 }}>
+      <span className="absolute inset-0 rounded-full transition-all" style={{
+        border: active ? `1px solid ${on}` : '1px solid rgba(255,255,255,.14)',
+        background: active ? (blue ? 'rgba(0,140,255,.22)' : 'rgba(255,255,255,.16)') : 'transparent',
+        boxShadow: active && blue ? '0 0 10px rgba(0,140,255,.45)' : 'none',
+      }} />
+      <motion.span
         className="absolute top-[2px] rounded-full"
-        style={{
-          width: 10,
-          height: 10,
-          background: active ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.2)',
-          boxShadow: active ? '0 0 6px rgba(255,255,255,0.4)' : 'none',
-        }}
-        animate={{ left: active ? 16 : 2 }}
-        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+        style={{ width: 11, height: 11, background: active ? on : 'rgba(255,255,255,.22)' }}
+        animate={{ left: active ? 17 : 2 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }}
       />
     </span>
   );
 }
 
-/**
- * The elbow that ties a sub-layer row to the layer above it. Indentation alone
- * reads as a typo at this size; the line is what says "this belongs to that".
- */
-function SubLayerStem() {
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none absolute left-[6px] top-0 h-1/2 w-[8px] rounded-bl-[3px] border-b border-l border-white/[0.14]"
-    />
-  );
+function SubStem() {
+  return <span aria-hidden className="pointer-events-none absolute left-[7px] top-0 h-1/2 w-[8px] rounded-bl-[3px] border-b border-l border-white/[0.14]" />;
 }
 
 function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {} }: LayerPanelProps) {
-  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
-  /**
-   * A pinned group stays open when the pointer leaves. Hover-only flyouts are
-   * fine to glance at and impossible to work in — reaching for a toggle at the
-   * far edge closes the thing you were reaching for.
-   */
-  const [pinnedGroup, setPinnedGroup] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   useEffect(() => {
-    if (!pinnedGroup) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPinnedGroup(null); };
+    try { setDebugOpen(localStorage.getItem('osiris:debug-open') === '1'); } catch { /* ignore */ }
+    const onState = (event: Event) => setDebugOpen(Boolean((event as CustomEvent<{ open?: boolean }>).detail?.open));
+    window.addEventListener('osiris-debug-state', onState);
+    return () => window.removeEventListener('osiris-debug-state', onState);
+  }, []);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setPinned(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pinnedGroup]);
+  }, [pinned]);
 
-  const toggle = (key: string) => setActiveLayers((prev: any) => ({ ...prev, [key]: !prev[key] }));
+  const visibleGroups = GROUPS.map(group => ({
+    ...group,
+    layers: group.layers.filter(layer => !layer.requires || capabilities[layer.requires]),
+  })).filter(group => group.layers.length);
 
-  /** Switch a whole group at once — off if any are on, otherwise all on. */
-  const toggleGroup = (layers: LayerDef[]) => {
-    const anyOn = layers.some(l => activeLayers[l.key]);
-    setActiveLayers((prev: any) => {
-      const next = { ...prev };
-      for (const l of layers) next[l.key] = !anyOn;
-      return next;
-    });
-  };
+  const toggle = (key: string) => setActiveLayers((previous: any) => ({ ...previous, [key]: !previous[key] }));
+  const toggleDebug = () => window.dispatchEvent(new Event('osiris-debug-toggle'));
 
-  /* Drop layers whose backing capability is not configured, then drop any group
-     left with nothing to show. */
-  const visibleGroups = LAYER_GROUPS.map(g => ({
-    ...g,
-    layers: g.layers.filter(l => !l.requires || capabilities[l.requires]),
-  })).filter(g => g.layers.length > 0);
-
-  const getCount = (dk: string, catKey?: string): number | null => {
-    if (!dk) return null;
-    if (catKey && data.category_counts) {
-      return data.category_counts[catKey] || 0;
-    }
-    let total = 0;
-    let found = false;
-    for (const k of dk.split(',')) {
-      if (data[k] && Array.isArray(data[k])) {
-        total += data[k].length;
-        found = true;
-      }
-    }
+  const count = (dataKey: string, catKey?: string): number | null => {
+    if (!dataKey) return null;
+    if (catKey && data.category_counts) return data.category_counts[catKey] || 0;
+    let total = 0; let found = false;
+    for (const key of dataKey.split(',')) if (Array.isArray(data[key])) { total += data[key].length; found = true; }
     return found ? total : null;
   };
 
-  /* ── MOBILE ── */
+  const layerRow = (layer: LayerDef, mobile = false) => {
+    const active = Boolean(activeLayers[layer.key]);
+    const dormant = Boolean(layer.parent && !activeLayers[layer.parent]);
+    const news = layer.key === 'gdelt_events';
+    const n = count(layer.dataKey, layer.catKey);
+    return (
+      <button
+        key={layer.key}
+        onClick={() => toggle(layer.key)}
+        aria-pressed={active}
+        className={`relative w-full flex items-center gap-3 rounded-md text-left hover:bg-white/[0.05] transition-colors ${mobile ? 'py-2' : 'py-1.5'} ${layer.parent ? 'pl-[22px] pr-1' : 'px-1'} ${dormant ? 'opacity-40' : ''}`}
+      >
+        {layer.parent && <SubStem />}
+        <Toggle active={active} blue={news} />
+        <span className="text-[11px] font-mono uppercase tracking-wider flex-1" style={{ color: active ? (news ? '#56c5ff' : 'rgba(255,255,255,.76)') : 'rgba(255,255,255,.36)' }}>
+          {news && <Newspaper className="inline w-3 h-3 mr-1.5 -mt-px" />} {layer.label}
+        </span>
+        {n !== null && <span className="text-[10px] font-mono tabular-nums text-white/25">{n.toLocaleString()}</span>}
+      </button>
+    );
+  };
+
   if (isMobile) {
     return (
       <div className="flex flex-col gap-5 py-2">
-        {visibleGroups.map((group) => (
-          <div key={group.label} className="flex flex-col gap-2">
-            <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30 border-b border-white/[0.06] pb-1.5">
-              {group.fullLabel}
-            </div>
-            <div className="flex flex-col gap-1">
-              {group.layers.map((layer) => {
-                const isLayerActive = activeLayers[layer.key];
-                const count = getCount(layer.dataKey, layer.catKey);
-                const dormant = !!layer.parent && !activeLayers[layer.parent];
-                return (
-                  <button
-                    key={layer.key}
-                    onClick={() => toggle(layer.key)}
-                    aria-pressed={!!isLayerActive}
-                    className={`relative w-full flex items-center gap-3 py-2 rounded-md text-left hover:bg-white/[0.04] transition-colors ${layer.parent ? 'pl-[22px] pr-1' : 'px-1'} ${dormant ? 'opacity-40' : ''}`}
-                  >
-                    {layer.parent && <SubLayerStem />}
-                    <ToggleSwitch active={!!isLayerActive} />
-                    <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 transition-colors ${isLayerActive ? 'text-white/80' : 'text-white/40'}`}>
-                      {layer.label}
-                    </span>
-                    {count !== null && (
-                      <span className="text-[10px] font-mono tabular-nums text-white/25">
-                        {count.toLocaleString()}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+        {visibleGroups.map(group => (
+          <div key={group.label} className="flex flex-col gap-1">
+            <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30 border-b border-white/[0.06] pb-1.5 mb-1">{group.fullLabel}</div>
+            {group.layers.map(layer => layerRow(layer, true))}
           </div>
         ))}
-
-        {/* MOBILE STYLE STUDIO */}
-        <div className="flex items-center justify-between mt-2 pt-3 border-t border-white/[0.06] px-1">
-          <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Style Studio</span>
-          <button
-            onClick={() => setStudioOpen(o => !o)}
-            aria-pressed={studioOpen}
-            className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
-            style={{
-              background: studioOpen ? 'var(--hover-accent)' : 'transparent',
-              boxShadow: studioOpen ? '0 0 12px var(--gold-glow)' : 'none',
-            }}
-          >
-            <SlidersHorizontal className="w-4 h-4" style={{ color: studioOpen ? 'var(--gold-primary)' : 'rgba(255,255,255,0.25)' }} />
+        <div className="pt-3 border-t border-[#008cff]/20">
+          <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-[#4abaff]/70 mb-2">SYSTEM</div>
+          <button onClick={toggleDebug} className="w-full flex items-center gap-3 py-2 px-1 rounded hover:bg-[#008cff]/10">
+            <Toggle active={debugOpen} blue />
+            <Bug className="w-3.5 h-3.5 text-[#42b9ff]" />
+            <span className="text-[11px] font-mono uppercase tracking-wider text-[#67c8ff]">Debug Overlay</span>
           </button>
         </div>
-        <AnimatePresence>
-          {studioOpen && <StyleStudio isMobile onClose={() => setStudioOpen(false)} />}
-        </AnimatePresence>
-
-        {/* MOBILE GHOST TOGGLE */}
-        {setTheme && (
-          <div className="flex items-center justify-between pt-3 border-t border-white/[0.06] px-1">
-            <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Ghost Protocol</span>
-            <button
-              onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
-              className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
-              style={{
-                background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.15)' : 'transparent',
-                boxShadow: theme === 'ghost' ? '0 0 12px rgba(179, 136, 255, 0.3)' : 'none',
-              }}
-            >
-              <Ghost className="w-4 h-4" style={{ color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,0.25)' }} />
-            </button>
-          </div>
-        )}
       </div>
     );
   }
 
-  /* ── DESKTOP ── */
   return (
     <motion.div
-      initial={{ x: -60, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
+      initial={{ x: -60, opacity: 0 }} animate={{ x: 0, opacity: 1 }}
       transition={{ type: 'spring', damping: 30, stiffness: 200, delay: 2.8 }}
       className="absolute top-0 left-0 h-full w-[48px] flex flex-col items-center pt-24 pb-6 z-50 pointer-events-auto"
-      style={{
-        background: 'rgba(0,0,0,0.15)',
-        backdropFilter: 'blur(24px) saturate(1.2)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.2)',
-      }}
+      style={{ background: 'rgba(0,0,0,.18)', backdropFilter: 'blur(24px) saturate(1.2)' }}
     >
       <div className="flex-1 flex flex-col items-center gap-1">
-        {visibleGroups.map((group) => {
-          /* Sub-layers modify a parent rather than draw anything of their own,
-             so they do not count towards the rail's reading. */
-          const counted = group.layers.filter(l => !l.parent);
-          const groupActive = counted.some(l => activeLayers[l.key]);
-          const isHovered = hoveredGroup === group.label;
+        {visibleGroups.map(group => {
+          const activeCount = group.layers.filter(layer => !layer.parent && activeLayers[layer.key]).length;
+          const isOpen = hovered === group.label || pinned === group.label;
           const Icon = group.icon;
-
-          const activeCount = counted.filter(l => activeLayers[l.key]).length;
-          const isPinned = pinnedGroup === group.label;
-          const isOpen = isHovered || isPinned;
-
           return (
-            <div
-              key={group.label}
-              className="relative flex items-center justify-center"
-              onMouseEnter={() => setHoveredGroup(group.label)}
-              onMouseLeave={() => setHoveredGroup(null)}
-            >
-              {/* A real button, not a div: this is keyboard reachable, focusable
-                  and announced. Clicking pins the flyout open so it can be
-                  worked in rather than only glanced at. */}
+            <div key={group.label} className="relative flex items-center justify-center" onMouseEnter={() => setHovered(group.label)} onMouseLeave={() => setHovered(null)}>
               <button
-                onClick={() => setPinnedGroup(isPinned ? null : group.label)}
-                aria-expanded={isOpen}
-                aria-label={`${group.fullLabel}${activeCount ? ` — ${activeCount} active` : ''}`}
+                onClick={() => setPinned(pinned === group.label ? null : group.label)}
                 title={group.fullLabel}
-                className="relative w-10 h-10 flex items-center justify-center cursor-pointer rounded-lg transition-all duration-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
-                style={{
-                  background: isPinned
-                    ? 'rgba(255,255,255,0.10)'
-                    : isHovered ? 'rgba(255,255,255,0.05)' : 'transparent',
-                }}
+                className="relative w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/[0.05] focus:outline-none"
               >
-                <Icon
-                  className="transition-all duration-300"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    color: groupActive
-                      ? 'rgba(255,255,255,0.75)'
-                      : isOpen
-                        ? 'rgba(255,255,255,0.45)'
-                        : 'rgba(255,255,255,0.22)',
-                    filter: groupActive ? 'drop-shadow(0 0 4px rgba(255,255,255,0.3))' : 'none',
-                  }}
-                />
-
-                {/* How many layers in this group are live. Without it the rail
-                    gives no reading at all until each icon is hovered in turn. */}
-                {activeCount > 0 && (
-                  <span
-                    className="absolute top-1 right-1 min-w-[13px] h-[13px] px-[3px] rounded-full flex items-center justify-center text-[9px] font-mono tabular-nums leading-none"
-                    style={{
-                      background: 'rgba(0,229,255,0.9)',
-                      color: '#04040A',
-                      boxShadow: '0 0 6px rgba(0,229,255,0.5)',
-                    }}
-                  >
-                    {activeCount}
-                  </span>
-                )}
+                <Icon className="w-4 h-4" style={{ color: activeCount ? 'rgba(255,255,255,.75)' : 'rgba(255,255,255,.24)' }} />
+                {activeCount > 0 && <span className="absolute top-1 right-1 min-w-[13px] h-[13px] px-[3px] rounded-full flex items-center justify-center text-[9px] font-mono bg-[#00e5ff] text-black shadow-[0_0_6px_rgba(0,229,255,.5)]">{activeCount}</span>}
               </button>
-
-              {/* Flyout (LEFT side) */}
               <AnimatePresence>
                 {isOpen && (
                   <motion.div
-                    initial={{ opacity: 0, x: -8, filter: 'blur(4px)' }}
-                    animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, x: -4, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                    className="absolute left-[52px] top-1/2 -translate-y-1/2 min-w-[220px] rounded-xl p-3 z-[100] pointer-events-auto"
-                    style={{
-                      background: 'rgba(0,0,0,0.6)',
-                      backdropFilter: 'blur(40px) saturate(1.5)',
-                      WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                    }}
+                    initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -4 }}
+                    className="absolute left-[52px] top-1/2 -translate-y-1/2 min-w-[235px] rounded-xl p-3 z-[100]"
+                    style={{ background: 'rgba(0,5,12,.84)', backdropFilter: 'blur(38px)', border: '1px solid rgba(70,155,220,.12)', boxShadow: '0 10px 38px rgba(0,0,0,.62)' }}
                   >
-                    <div className="flex items-center gap-2 mb-2.5 pb-1.5 border-b border-white/[0.04]">
-                      <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/35 flex-1">
-                        {group.fullLabel}
-                      </span>
-                      {/* Switching eight satellite layers one at a time is the
-                          kind of thing that makes a panel feel unfinished. */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleGroup(group.layers); }}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono tracking-wider text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-                      >
-                        {activeCount > 0 ? 'NONE' : 'ALL'}
-                      </button>
-                      {isPinned && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setPinnedGroup(null); }}
-                          aria-label="Close"
-                          className="px-1.5 py-0.5 rounded text-[10px] font-mono text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-                        >
-                          ✕
-                        </button>
-                      )}
+                    <div className="flex items-center gap-2 mb-2 pb-2 border-b border-white/[0.05]">
+                      <span className="text-[10px] font-mono tracking-[.18em] uppercase text-white/40 flex-1">{group.fullLabel}</span>
+                      {pinned === group.label && <button onClick={() => setPinned(null)} className="text-white/35 hover:text-white text-xs">✕</button>}
                     </div>
-                    <div className="flex flex-col gap-0.5">
-                      {group.layers.map((layer) => {
-                        const isLayerActive = activeLayers[layer.key];
-                        const count = getCount(layer.dataKey, layer.catKey);
-                        const dormant = !!layer.parent && !activeLayers[layer.parent];
-
-                        return (
-                          <button
-                            key={layer.key}
-                            onClick={() => toggle(layer.key)}
-                            aria-pressed={!!isLayerActive}
-                            title={dormant ? 'Turn the layer above on to use this' : undefined}
-                            className={`relative w-full flex items-center gap-3 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors cursor-pointer text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${layer.parent ? 'pl-[22px] pr-1' : 'px-1'} ${dormant ? 'opacity-40' : ''}`}
-                          >
-                            {layer.parent && <SubLayerStem />}
-                            <ToggleSwitch active={!!isLayerActive} />
-                            <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 transition-colors duration-200 ${isLayerActive ? 'text-white/70' : 'text-white/35'}`}>
-                              {layer.label}
-                            </span>
-                            {count !== null && (
-                              <span className={`text-[10px] font-mono tabular-nums transition-colors ${isLayerActive ? 'text-white/45' : 'text-white/20'}`}>
-                                {count.toLocaleString()}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <div className="flex flex-col gap-0.5">{group.layers.map(layer => layerRow(layer))}</div>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -472,50 +229,38 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
         })}
       </div>
 
-      {/* Subtle separator */}
       <div className="w-5 h-px bg-white/[0.06] my-2" />
 
-      {/* Style Studio */}
-      <button
-        onClick={() => setStudioOpen(o => !o)}
-        aria-pressed={studioOpen}
-        className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
-        style={{ background: studioOpen ? 'var(--hover-accent)' : 'transparent' }}
-        title="Style Studio"
-      >
-        <SlidersHorizontal
-          className="transition-all duration-500"
-          style={{
-            width: 15,
-            height: 15,
-            color: studioOpen ? 'var(--gold-primary)' : 'rgba(255,255,255,0.15)',
-            filter: studioOpen ? 'drop-shadow(0 0 6px var(--gold-glow))' : 'none',
-          }}
-        />
-      </button>
-      <AnimatePresence>
-        {studioOpen && <StyleStudio onClose={() => setStudioOpen(false)} />}
-      </AnimatePresence>
-
-      {/* Ghost Protocol Toggle */}
-      {setTheme && (
+      <div className="relative" onMouseEnter={() => setHovered('SYSTEM')} onMouseLeave={() => setHovered(null)}>
         <button
-          onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
-          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
-          style={{
-            background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.1)' : 'transparent',
-          }}
-          title="Ghost Protocol"
+          onClick={toggleDebug}
+          title="Debug Overlay"
+          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all"
+          style={{ background: debugOpen ? 'rgba(0,140,255,.18)' : 'transparent', boxShadow: debugOpen ? 'inset 0 0 14px rgba(0,140,255,.15)' : 'none' }}
         >
-          <Ghost
-            className="transition-all duration-500"
-            style={{
-              width: 15,
-              height: 15,
-              color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,0.15)',
-              filter: theme === 'ghost' ? 'drop-shadow(0 0 6px rgba(179, 136, 255, 0.5))' : 'none',
-            }}
-          />
+          <Bug className="w-4 h-4" style={{ color: debugOpen ? '#42b9ff' : 'rgba(66,185,255,.48)', filter: debugOpen ? 'drop-shadow(0 0 6px #008cff)' : 'none' }} />
+        </button>
+        <AnimatePresence>
+          {hovered === 'SYSTEM' && (
+            <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -4 }} className="absolute left-[52px] bottom-0 w-[220px] rounded-xl p-3 z-[100]" style={{ background: 'rgba(0,5,12,.9)', border: '1px solid rgba(0,140,255,.28)', boxShadow: '0 0 24px rgba(0,140,255,.15)' }}>
+              <div className="text-[10px] font-mono tracking-[.2em] text-[#4abaff]/70 border-b border-[#008cff]/15 pb-2 mb-2">SYSTEM</div>
+              <button onClick={toggleDebug} className="w-full flex items-center gap-3 py-1.5 rounded hover:bg-[#008cff]/10">
+                <Toggle active={debugOpen} blue />
+                <span className="text-[11px] font-mono uppercase tracking-wider text-[#67c8ff]">Debug Overlay</span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <button onClick={() => setStudioOpen(value => !value)} className="w-10 h-10 flex items-center justify-center rounded-lg" title="Style Studio">
+        <SlidersHorizontal className="w-4 h-4" style={{ color: studioOpen ? 'var(--gold-primary)' : 'rgba(255,255,255,.18)' }} />
+      </button>
+      <AnimatePresence>{studioOpen && <StyleStudio onClose={() => setStudioOpen(false)} />}</AnimatePresence>
+
+      {setTheme && (
+        <button onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')} className="w-10 h-10 flex items-center justify-center rounded-lg" title="Ghost Protocol">
+          <Ghost className="w-4 h-4" style={{ color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,.18)' }} />
         </button>
       )}
     </motion.div>
