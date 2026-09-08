@@ -4,6 +4,10 @@ import type { NextRequest, NextFetchEvent } from 'next/server';
 export function middleware(request: NextRequest, event: NextFetchEvent) {
   const url = request.nextUrl.pathname;
 
+  const requestId = request.headers.get('x-osiris-request-id') || crypto.randomUUID();
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-osiris-request-id', requestId);
+
   const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || '127.0.0.1';
   const userAgent = request.headers.get('user-agent') || 'Unknown OSIRIS Client';
 
@@ -46,7 +50,9 @@ export function middleware(request: NextRequest, event: NextFetchEvent) {
     event.waitUntil(Promise.all([pageView, ipEvent]));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  response.headers.set('x-osiris-request-id', requestId);
+  return response;
 }
 
 export const config = {
