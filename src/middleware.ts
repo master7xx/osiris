@@ -29,7 +29,7 @@ export function middleware(request: NextRequest, event: NextFetchEvent) {
    * install runs without any container-only dependency.
    */
   const umamiBaseUrl = process.env.UMAMI_BASE_URL?.replace(/\/$/, '');
-  if (umamiBaseUrl) {
+  if (umamiBaseUrl && !url.startsWith('/api/')) {
     const pageView = fetch(`${umamiBaseUrl}/api/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': userAgent, 'x-forwarded-for': ip },
