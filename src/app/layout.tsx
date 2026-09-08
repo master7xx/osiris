@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import ErrorBoundary from '@/components/ErrorBoundary';
+import DebugOverlay from '@/components/DebugOverlay';
 import "./globals.css";
 
 const SITE_URL = "https://osirisai.live";
@@ -201,6 +202,7 @@ export default function RootLayout({
         <ErrorBoundary name="OSIRIS Core">
           {children}
         </ErrorBoundary>
+        <DebugOverlay />
       </body>
     </html>
   );
