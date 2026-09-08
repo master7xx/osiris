@@ -2,9 +2,13 @@ name: Windows native
 
 on:
   push:
-    branches: [feat/windows-native-debug-overlay]
+    branches: [master]
   pull_request:
     branches: [master]
+
+concurrency:
+  group: windows-native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
