@@ -58,8 +58,6 @@ const GROUPS: LayerGroupDef[] = [
   { label: 'SURVEIL', fullLabel: 'SURVEILLANCE & NEWS', icon: Camera, layers: [
     { key: 'cctv', label: 'CCTV Cameras', dataKey: 'cameras' },
     { key: 'cctv_previews', label: 'Live Previews', dataKey: '', parent: 'cctv' },
-    // Reuses the existing gdelt-events MapLibre renderer, now backed by the
-    // geolocated multi-source breaking-news endpoint.
     { key: 'gdelt_events', label: 'Breaking News', dataKey: 'gdelt_events' },
     { key: 'live_news', label: 'Live News Feeds', dataKey: 'live_feeds' },
   ]},
@@ -113,6 +111,16 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
   const [pinned, setPinned] = useState<string | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+
+  /* Match the approved dashboard concept on a clean URL: article-based
+     Breaking News is the default news map layer, while TV live feeds are
+     opt-in. Shared/bookmarked URLs with an explicit ?layers= list always win. */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('layers')) return;
+    setActiveLayers((previous: any) => ({ ...previous, gdelt_events: true, live_news: false }));
+  }, [setActiveLayers]);
 
   useEffect(() => {
     try { setDebugOpen(localStorage.getItem('osiris:debug-open') === '1'); } catch { /* ignore */ }
