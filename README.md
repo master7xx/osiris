@@ -19,6 +19,29 @@
 
 ---
 
+## Windows version
+This is Windows adopted version.
+Clone of existing repo.
+
+```bash
+git clone https://github.com/master7xx/osiris.git
+cd osiris
+
+npm ci
+npm run doctor
+```
+
+Success output look like:
+```bash
+[OK] platform: Windows native
+[OK] Node.js: v22...
+[OK] working directory: package.json found
+```
+```bash
+Copy-Item .env.example .env.local
+npm run dev:windows
+```
+
 ## Overview
 
 Osiris is a production-grade OSINT platform that provides situational awareness across multiple intelligence domains. Built with Next.js 16 and MapLibre GL, every data point is rendered via WebGL for 60fps performance even with thousands of concurrent entities on-screen.
