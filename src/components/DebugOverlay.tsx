@@ -111,20 +111,22 @@ export default function DebugOverlay() {
             <table style={{ width: '100%', borderCollapse: 'collapse', whiteSpace: 'nowrap' }}>
               <thead style={{ position: 'sticky', top: 0, background: '#111827' }}>
                 <tr>
-                  {['TIME', 'STATUS', 'METHOD', 'ENDPOINT', 'DURATION', 'SINCE PREV', 'REQUEST ID', 'SERVER TIMING / ERROR'].map(label => (
+                  {['TIME', 'STATUS', 'METHOD', 'ENDPOINT / UPSTREAM', 'DURATION', 'SINCE PREV', 'REQUEST ID', 'SERVER TIMING / ERROR'].map(label => (
                     <th key={label} style={{ textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid #374151' }}>{label}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(event => {
+                {filtered.flatMap(event => {
                   const elapsed = event.status === 'pending' ? Date.now() - event.startedAt : event.durationMs;
-                  return (
+                  const main = (
                     <tr key={event.id}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{new Date(event.startedAt).toLocaleTimeString()}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{statusLabel(event)}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{event.method}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{event.endpoint}</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>
+                        {event.endpoint}{event.upstreams?.length ? ` · ${event.upstreams.length} upstream` : ''}
+                      </td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{formatMs(elapsed)}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{formatMs(event.gapMs)}</td>
                       <td title={event.correlationId} style={{ padding: '6px 8px', borderBottom: '1px solid #1f2937' }}>{event.correlationId.slice(-12)}</td>
@@ -133,12 +135,25 @@ export default function DebugOverlay() {
                       </td>
                     </tr>
                   );
+                  const upstreamRows = (event.upstreams || []).map(upstream => (
+                    <tr key={`${event.id}:${upstream.id}`} style={{ color: upstream.state === 'ok' ? '#9ca3af' : '#fca5a5', background: '#070b14' }}>
+                      <td style={{ padding: '4px 8px 4px 22px', borderBottom: '1px solid #111827' }}>{new Date(upstream.startedAt).toLocaleTimeString()}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{upstream.status ?? upstream.state.toUpperCase()}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{upstream.method}</td>
+                      <td title={upstream.url} style={{ padding: '4px 8px 4px 22px', borderBottom: '1px solid #111827', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis' }}>↳ {upstream.host}{new URL(upstream.url).pathname}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>{formatMs(upstream.durationMs)}</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>—</td>
+                      <td style={{ padding: '4px 8px', borderBottom: '1px solid #111827' }}>server</td>
+                      <td title={upstream.error} style={{ padding: '4px 8px', borderBottom: '1px solid #111827', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis' }}>{upstream.error || '—'}</td>
+                    </tr>
+                  ));
+                  return [main, ...upstreamRows];
                 })}
               </tbody>
             </table>
           </div>
           <footer style={{ padding: 8, borderTop: '1px solid #374151', color: '#9ca3af' }}>
-            Query strings, request bodies and headers are not stored. Ctrl+Shift+D toggles this overlay.
+            Query strings, request bodies and headers are not stored. Upstream rows are server-side fetches correlated to the API request. Ctrl+Shift+D toggles this overlay.
           </footer>
         </section>
       )}
