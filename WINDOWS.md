@@ -60,3 +60,23 @@ and can export a sanitized JSON snapshot.
 
 Query strings are intentionally stripped from the display/export so API keys,
 targets and other sensitive parameters are not copied into debug logs.
+
+
+## Server-side upstream timings
+
+In `npm run dev:windows`, upstream fetch instrumentation is enabled automatically.
+Each browser `/api/*` request receives a correlation ID; the overlay then attaches
+the external fetches performed by that route and displays their host/path, HTTP
+status, duration, timeout/abort state, and error.
+
+For a production-like `npm start` session, server-side collection is deliberately
+off by default. Enable it temporarily in PowerShell with:
+
+```powershell
+$env:OSIRIS_DEBUG = "1"
+npm start
+```
+
+Do not enable `OSIRIS_DEBUG=1` on an internet-facing production instance unless
+you intentionally want the diagnostic endpoint available. The collector never
+stores query strings, bodies, request headers, cookies, or authorization values.
