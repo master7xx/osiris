@@ -5,6 +5,7 @@ import {
   isDebuggableEndpoint,
   sanitizeEndpoint,
   updateDebugEvent,
+  type DebugUpstreamEvent,
 } from './debug-events';
 
 declare global {
@@ -57,15 +58,33 @@ export function installDebugFetch() {
       const request = input instanceof Request ? new Request(input, { ...init, headers }) : input;
       const response = await originalFetch(request, input instanceof Request ? undefined : { ...init, headers });
       const durationMs = performance.now() - startedAt;
+      const resolvedCorrelationId = response.headers.get('x-osiris-request-id') || correlationId;
+
       updateDebugEvent(eventId, {
         status: response.ok ? 'ok' : 'error',
         httpStatus: response.status,
         finishedAt: Date.now(),
         durationMs,
         serverTiming: response.headers.get('server-timing') || undefined,
-        correlationId: response.headers.get('x-osiris-request-id') || correlationId,
+        correlationId: resolvedCorrelationId,
         error: response.ok ? undefined : `HTTP ${response.status} ${response.statusText}`.trim(),
       });
+
+      try {
+        const debugResponse = await originalFetch(
+          `/api/debug/events?correlationId=${encodeURIComponent(resolvedCorrelationId)}`,
+          { cache: 'no-store' },
+        );
+        if (debugResponse.ok) {
+          const payload = await debugResponse.json() as { events?: DebugUpstreamEvent[] };
+          if (Array.isArray(payload.events) && payload.events.length) {
+            updateDebugEvent(eventId, { upstreams: payload.events });
+          }
+        }
+      } catch {
+        // Server instrumentation is optional (disabled in production unless OSIRIS_DEBUG=1).
+      }
+
       return response;
     } catch (error) {
       const durationMs = performance.now() - startedAt;
