@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   clearDebugEvents,
   getDebugEventsSnapshot,
@@ -27,7 +27,7 @@ function statusLabel(event: DebugRequestEvent) {
 export default function DebugOverlay() {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
 
   useSyncExternalStore(subscribeDebugEvents, getDebugEventsVersion, () => 0);
 
@@ -48,11 +48,8 @@ export default function DebugOverlay() {
   }, []);
 
   const events = getDebugEventsSnapshot();
-  const filtered = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    return needle ? events.filter(event => event.endpoint.toLowerCase().includes(needle)) : events;
-  // tick deliberately refreshes pending elapsed timers.
-  }, [events.length, filter, tick]);
+  const needle = filter.trim().toLowerCase();
+  const filtered = needle ? events.filter(event => event.endpoint.toLowerCase().includes(needle)) : events;
 
   const failures = events.filter(event => event.status === 'error' || event.status === 'aborted').length;
   const pending = events.filter(event => event.status === 'pending').length;
