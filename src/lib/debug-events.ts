@@ -1,5 +1,17 @@
 export type DebugRequestStatus = 'pending' | 'ok' | 'error' | 'aborted';
 
+export interface DebugUpstreamEvent {
+  id: string;
+  url: string;
+  host: string;
+  method: string;
+  status?: number;
+  startedAt: number;
+  durationMs?: number;
+  state: DebugRequestStatus;
+  error?: string;
+}
+
 export interface DebugRequestEvent {
   id: string;
   correlationId: string;
@@ -13,6 +25,7 @@ export interface DebugRequestEvent {
   gapMs?: number;
   serverTiming?: string;
   error?: string;
+  upstreams?: DebugUpstreamEvent[];
 }
 
 const MAX_EVENTS = 300;
@@ -31,7 +44,7 @@ export function sanitizeEndpoint(input: string): string {
 
 export function isDebuggableEndpoint(input: string): boolean {
   const endpoint = sanitizeEndpoint(input);
-  return endpoint === '/api' || endpoint.startsWith('/api/');
+  return endpoint === '/api' || (endpoint.startsWith('/api/') && endpoint !== '/api/debug/events');
 }
 
 export function addDebugEvent(event: DebugRequestEvent) {
@@ -56,7 +69,10 @@ export function clearDebugEvents() {
 }
 
 export function getDebugEventsSnapshot(): DebugRequestEvent[] {
-  return events.map(event => ({ ...event }));
+  return events.map(event => ({
+    ...event,
+    upstreams: event.upstreams?.map(upstream => ({ ...upstream })),
+  }));
 }
 
 export function getDebugEventsVersion() {
