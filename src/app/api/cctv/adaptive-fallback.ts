@@ -55,6 +55,9 @@ export function planCctvFallback(
 ): CctvFallbackPlan | null {
   if (responseOk && cameraCount > 0) return null;
 
+  const url = new URL(requestUrl);
+  if (url.searchParams.get('region') === 'all') return null;
+
   const requestedRegions = explicitRegions(requestUrl);
   const seeds = requestedRegions.length > 0 ? requestedRegions : resolvedRegions;
   if (seeds.length === 0) return null;
