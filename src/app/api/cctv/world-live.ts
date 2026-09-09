@@ -32,9 +32,11 @@ export async function fetchAfricaLiveCameras(): Promise<CctvCamera[]> {
  * so a later refresh can pick up the warmed global sample.
  */
 async function optionalEuropeOpenCctv(): Promise<CctvCamera[]> {
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    fetchEuropeOpenCctvCameras().finally(() => clearTimeout(timer)),
+    fetchEuropeOpenCctvCameras().finally(() => {
+      if (timer) clearTimeout(timer);
+    }),
     new Promise<CctvCamera[]>(resolve => {
       timer = setTimeout(() => resolve([]), 7000);
     }),
