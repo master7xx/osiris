@@ -77,6 +77,16 @@ export function installDebugFetch() {
         }).catch(() => {});
       }
 
+      if (endpoint === '/api/region-dossier' && response.ok) {
+        void response.clone().json().then((payload: { partial?: boolean; sources?: Record<string, unknown> }) => {
+          if (payload.sources && typeof payload.sources === 'object') {
+            window.dispatchEvent(new CustomEvent('osiris:region-dossier-status', {
+              detail: { partial: Boolean(payload.partial), sources: payload.sources },
+            }));
+          }
+        }).catch(() => {});
+      }
+
       try {
         const debugResponse = await originalFetch(
           `/api/debug/events?correlationId=${encodeURIComponent(resolvedCorrelationId)}`,
