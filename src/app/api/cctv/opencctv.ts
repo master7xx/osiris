@@ -2,6 +2,7 @@ import { stealthFetch } from '@/lib/stealthFetch';
 import { cachedSource } from '@/lib/sourceCache';
 import { noteCctvProviderScope } from '@/lib/cctv-provider-health';
 import type { CctvCamera, CctvStreamType } from './types';
+import { fetchWindyEurasiaCameras } from './windy';
 
 /**
  * OSIRIS — macro-region cameras via the OpenCCTV directory.
@@ -333,5 +334,22 @@ function loader(scope: string, region: string, spec: RegionSpec) {
 
 export const fetchEastAsiaCameras = cachedSource('eastasia', loader('eastasia', 'East Asia', REGIONS.eastasia));
 export const fetchSeAsiaCameras = cachedSource('seasia', loader('seasia', 'Southeast Asia', REGIONS.seasia));
-export const fetchWestAsiaCameras = cachedSource('westasia', loader('westasia', 'West, Central & North Asia', REGIONS.westasia));
+const fetchWestAsiaOpenCctvCameras = cachedSource('westasia-occ', loader('westasia', 'West, Central & North Asia', REGIONS.westasia));
 export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('europe', 'Europe', REGIONS.europe));
+
+/**
+ * The northern-Eurasia viewport router sends Russia/Siberia directly to
+ * `westasia`. Enrich that ordinary viewport path with the same optional Windy
+ * Eurasia layer that global/europe-live requests already receive.
+ */
+export async function fetchWestAsiaCameras(): Promise<CctvCamera[]> {
+  const [openCctv, windy] = await Promise.all([
+    fetchWestAsiaOpenCctvCameras(),
+    fetchWindyEurasiaCameras(),
+  ]);
+
+  const seen = new Map<string, CctvCamera>();
+  for (const camera of openCctv) seen.set(camera.id, camera);
+  for (const camera of windy) seen.set(camera.id, camera);
+  return [...seen.values()];
+}
