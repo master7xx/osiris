@@ -1,7 +1,6 @@
 export type SourceRuntimeState = 'healthy' | 'degraded' | 'cooldown';
 
 export interface SourceHealthSnapshot {
-  id: string;
   state: SourceRuntimeState;
   effective_weight: number;
   success_rate: number;
@@ -126,7 +125,6 @@ export function getSourceHealthSnapshot(id: string, baseWeight = 1, now = Date.n
     || record.latencyEwma > SLOW_MS;
 
   return {
-    id,
     state: inCooldown ? 'cooldown' : degraded ? 'degraded' : 'healthy',
     effective_weight: Number((baseWeight * sourceHealthMultiplier(id, now)).toFixed(3)),
     success_rate: Number(successRate.toFixed(3)),
