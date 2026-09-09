@@ -1,10 +1,14 @@
 import Parser from 'rss-parser';
 
+export type NewsSourceTier = 'editorial' | 'osint' | 'broadcaster';
+
 export interface NewsSourceHealth {
   id: string;
   name: string;
   kind: 'rss' | 'telegram';
+  tier: NewsSourceTier;
   independent: boolean;
+  weight: number;
   ok: boolean;
   duration_ms: number;
   items: number;
@@ -21,6 +25,8 @@ export interface NewsItem {
   sources: string[];
   source_count: number;
   independent_sources: number;
+  editorial_sources: number;
+  evidence_weight: number;
   risk_score: number;
   confidence: 'low' | 'medium' | 'high';
   coords: [number, number] | null;
@@ -35,7 +41,10 @@ interface RawArticle {
   description: string;
   link: string;
   published: string;
+  sourceId: string;
   source: string;
+  sourceTier: NewsSourceTier;
+  sourceWeight: number;
   independent: boolean;
 }
 
@@ -43,26 +52,47 @@ interface SourceDef {
   id: string;
   name: string;
   kind: 'rss' | 'telegram';
+  tier: NewsSourceTier;
   url?: string;
   channel?: string;
   independent: boolean;
   weight: number;
+  maxItems: number;
 }
 
+/**
+ * Source policy:
+ * - editorial: named newsrooms with original reporting / editorial accountability;
+ * - osint: fast situational-awareness sources that are useful but should not outrank
+ *   corroborated editorial reporting on their own;
+ * - broadcaster: broad conventional coverage used for cross-checking and global reach.
+ *
+ * All sources are fetched in parallel. `weight` is evidence quality, not political
+ * preference. A single low-weight OSINT post cannot become a high-confidence incident;
+ * corroboration from distinct sources is what raises confidence.
+ */
 const SOURCES: SourceDef[] = [
-  { id: 'bbc-world', name: 'BBC', kind: 'rss', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', independent: false, weight: 0.9 },
-  { id: 'guardian-world', name: 'Guardian', kind: 'rss', url: 'https://www.theguardian.com/world/rss', independent: true, weight: 1.0 },
-  { id: 'aljazeera', name: 'Al Jazeera', kind: 'rss', url: 'https://www.aljazeera.com/xml/rss/all.xml', independent: false, weight: 0.9 },
-  { id: 'euronews-world', name: 'Euronews', kind: 'rss', url: 'https://www.euronews.com/rss?format=mrss&level=theme&name=news', independent: false, weight: 0.85 },
+  { id: 'bbc-world', name: 'BBC', kind: 'rss', tier: 'broadcaster', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', independent: false, weight: 0.95, maxItems: 12 },
+  { id: 'guardian-world', name: 'Guardian', kind: 'rss', tier: 'editorial', url: 'https://www.theguardian.com/world/rss', independent: true, weight: 1.05, maxItems: 12 },
+  { id: 'aljazeera', name: 'Al Jazeera', kind: 'rss', tier: 'broadcaster', url: 'https://www.aljazeera.com/xml/rss/all.xml', independent: false, weight: 0.95, maxItems: 12 },
+  { id: 'euronews-world', name: 'Euronews', kind: 'rss', tier: 'broadcaster', url: 'https://www.euronews.com/rss?format=mrss&level=theme&name=news', independent: false, weight: 0.85, maxItems: 10 },
 
-  // Telegram is a fast-signal tier, not a replacement for conventional feeds.
-  // These channels are intentionally fetched in parallel with RSS on every run.
-  { id: 'kyiv-independent', name: 'Kyiv Independent', kind: 'telegram', channel: 'KyivIndependent_official', independent: true, weight: 1.15 },
-  { id: 'citeam', name: 'Conflict Intelligence Team', kind: 'telegram', channel: 'CITeam', independent: true, weight: 1.1 },
-  { id: 'wartranslated', name: 'WarTranslated', kind: 'telegram', channel: 'wartranslated', independent: true, weight: 1.0 },
-  { id: 'noelreports', name: 'NOELREPORTS', kind: 'telegram', channel: 'noel_reports', independent: true, weight: 0.95 },
-  { id: 'faytuks-network', name: 'Faytuks Network', kind: 'telegram', channel: 'Faytuks_Network', independent: true, weight: 0.95 },
-  { id: 'liveuamap', name: 'Liveuamap', kind: 'telegram', channel: 'liveuamap', independent: false, weight: 0.9 },
+  // Independent editorial Telegram tier. These are deliberately capped so one
+  // high-volume newsroom cannot dominate the feed merely by posting more often.
+  { id: 'kyiv-independent', name: 'Kyiv Independent', kind: 'telegram', tier: 'editorial', channel: 'KyivIndependent_official', independent: true, weight: 1.15, maxItems: 8 },
+  { id: 'astra', name: 'ASTRA', kind: 'telegram', tier: 'editorial', channel: 'astrapress', independent: true, weight: 1.10, maxItems: 8 },
+  { id: 'meduza', name: 'Meduza', kind: 'telegram', tier: 'editorial', channel: 'meduzalive', independent: true, weight: 1.10, maxItems: 8 },
+  { id: 'important-stories', name: 'Important Stories', kind: 'telegram', tier: 'editorial', channel: 'istories_media', independent: true, weight: 1.10, maxItems: 8 },
+  { id: 'the-insider', name: 'The Insider', kind: 'telegram', tier: 'editorial', channel: 'theinsider', independent: true, weight: 1.10, maxItems: 8 },
+  { id: 'novaya-europe', name: 'Novaya Gazeta Europe', kind: 'telegram', tier: 'editorial', channel: 'novaya_europe', independent: true, weight: 1.05, maxItems: 8 },
+
+  // Fast OSINT tier. Kept for speed, but deliberately weighted below editorial
+  // reporting unless several distinct sources corroborate the same incident.
+  { id: 'citeam', name: 'Conflict Intelligence Team', kind: 'telegram', tier: 'osint', channel: 'CITeam', independent: true, weight: 1.05, maxItems: 8 },
+  { id: 'wartranslated', name: 'WarTranslated', kind: 'telegram', tier: 'osint', channel: 'wartranslated', independent: true, weight: 0.85, maxItems: 8 },
+  { id: 'noelreports', name: 'NOELREPORTS', kind: 'telegram', tier: 'osint', channel: 'noel_reports', independent: true, weight: 0.75, maxItems: 8 },
+  { id: 'faytuks-network', name: 'Faytuks Network', kind: 'telegram', tier: 'osint', channel: 'Faytuks_Network', independent: true, weight: 0.75, maxItems: 8 },
+  { id: 'liveuamap', name: 'Liveuamap', kind: 'telegram', tier: 'osint', channel: 'liveuamap', independent: false, weight: 0.85, maxItems: 8 },
 ];
 
 const RISK_KEYWORDS = [
@@ -70,6 +100,10 @@ const RISK_KEYWORDS = [
   'invasion', 'bomb', 'drone', 'weapon', 'sanctions', 'ceasefire', 'escalation',
   'killed', 'dead', 'destroyed', 'explosion', 'frontline', 'threat', 'air raid',
   'artillery', 'shelling', 'evacuation', 'intercepted', 'airstrike', 'casualties',
+  // Russian/Ukrainian-language feeds in the independent editorial tier.
+  'война', 'ракет', 'удар', 'атак', 'взрыв', 'беспилот', 'дрон', 'обстрел',
+  'погиб', 'ранен', 'эвакуац', 'ядерн', 'наступлен', 'боевые действия',
+  'воздушная тревога', 'шахед', 'війна', 'вибух', 'обстріл', 'поранен',
 ];
 
 interface PlaceDef {
@@ -80,49 +114,49 @@ interface PlaceDef {
 }
 
 const PLACES: PlaceDef[] = [
-  { keys: ['kyiv', 'kiev'], label: 'Kyiv, Ukraine', coords: [50.4501, 30.5234], confidence: 0.98 },
-  { keys: ['kharkiv'], label: 'Kharkiv, Ukraine', coords: [49.9935, 36.2304], confidence: 0.98 },
-  { keys: ['odesa', 'odessa'], label: 'Odesa, Ukraine', coords: [46.4825, 30.7233], confidence: 0.98 },
-  { keys: ['dnipro'], label: 'Dnipro, Ukraine', coords: [48.4647, 35.0462], confidence: 0.98 },
-  { keys: ['zaporizhzhia', 'zaporozhye'], label: 'Zaporizhzhia, Ukraine', coords: [47.8388, 35.1396], confidence: 0.98 },
-  { keys: ['lviv'], label: 'Lviv, Ukraine', coords: [49.8397, 24.0297], confidence: 0.98 },
-  { keys: ['donetsk'], label: 'Donetsk', coords: [48.0159, 37.8029], confidence: 0.96 },
-  { keys: ['crimea', 'sevastopol'], label: 'Crimea', coords: [44.9521, 34.1024], confidence: 0.9 },
-  { keys: ['kursk'], label: 'Kursk, Russia', coords: [51.7304, 36.1926], confidence: 0.97 },
-  { keys: ['belgorod'], label: 'Belgorod, Russia', coords: [50.5954, 36.5873], confidence: 0.97 },
-  { keys: ['moscow'], label: 'Moscow, Russia', coords: [55.7558, 37.6173], confidence: 0.98 },
-  { keys: ['st petersburg', 'saint petersburg'], label: 'St Petersburg, Russia', coords: [59.9343, 30.3351], confidence: 0.98 },
-  { keys: ['gaza city', 'gaza'], label: 'Gaza', coords: [31.5017, 34.4668], confidence: 0.94 },
-  { keys: ['rafah'], label: 'Rafah', coords: [31.2969, 34.2435], confidence: 0.98 },
-  { keys: ['tel aviv'], label: 'Tel Aviv, Israel', coords: [32.0853, 34.7818], confidence: 0.98 },
-  { keys: ['jerusalem'], label: 'Jerusalem', coords: [31.7683, 35.2137], confidence: 0.98 },
-  { keys: ['beirut'], label: 'Beirut, Lebanon', coords: [33.8938, 35.5018], confidence: 0.98 },
-  { keys: ['damascus'], label: 'Damascus, Syria', coords: [33.5138, 36.2765], confidence: 0.98 },
-  { keys: ['aleppo'], label: 'Aleppo, Syria', coords: [36.2021, 37.1343], confidence: 0.98 },
-  { keys: ['tehran'], label: 'Tehran, Iran', coords: [35.6892, 51.3890], confidence: 0.98 },
-  { keys: ['isfahan'], label: 'Isfahan, Iran', coords: [32.6546, 51.6680], confidence: 0.98 },
-  { keys: ['strait of hormuz', 'hormuz'], label: 'Strait of Hormuz', coords: [26.5667, 56.2500], confidence: 0.92 },
-  { keys: ['baghdad'], label: 'Baghdad, Iraq', coords: [33.3152, 44.3661], confidence: 0.98 },
-  { keys: ['erbil'], label: 'Erbil, Iraq', coords: [36.1911, 44.0092], confidence: 0.98 },
-  { keys: ['sanaa', "sana'a"], label: "Sana'a, Yemen", coords: [15.3694, 44.1910], confidence: 0.98 },
-  { keys: ['aden'], label: 'Aden, Yemen', coords: [12.7855, 45.0187], confidence: 0.98 },
-  { keys: ['riyadh'], label: 'Riyadh, Saudi Arabia', coords: [24.7136, 46.6753], confidence: 0.98 },
-  { keys: ['doha'], label: 'Doha, Qatar', coords: [25.2854, 51.5310], confidence: 0.98 },
-  { keys: ['taipei'], label: 'Taipei, Taiwan', coords: [25.0330, 121.5654], confidence: 0.98 },
-  { keys: ['beijing'], label: 'Beijing, China', coords: [39.9042, 116.4074], confidence: 0.98 },
-  { keys: ['pyongyang'], label: 'Pyongyang, North Korea', coords: [39.0392, 125.7625], confidence: 0.98 },
-  { keys: ['seoul'], label: 'Seoul, South Korea', coords: [37.5665, 126.9780], confidence: 0.98 },
-  { keys: ['tokyo'], label: 'Tokyo, Japan', coords: [35.6762, 139.6503], confidence: 0.98 },
-  { keys: ['washington dc', 'washington, d.c.', 'washington d.c.'], label: 'Washington, DC', coords: [38.9072, -77.0369], confidence: 0.98 },
-  { keys: ['new york city', 'new york'], label: 'New York, US', coords: [40.7128, -74.0060], confidence: 0.96 },
-  { keys: ['london'], label: 'London, UK', coords: [51.5072, -0.1276], confidence: 0.98 },
-  { keys: ['paris'], label: 'Paris, France', coords: [48.8566, 2.3522], confidence: 0.98 },
-  { keys: ['berlin'], label: 'Berlin, Germany', coords: [52.5200, 13.4050], confidence: 0.98 },
-  { keys: ['brussels'], label: 'Brussels, Belgium', coords: [50.8503, 4.3517], confidence: 0.98 },
-  { keys: ['warsaw'], label: 'Warsaw, Poland', coords: [52.2297, 21.0122], confidence: 0.98 },
-  { keys: ['bucharest'], label: 'Bucharest, Romania', coords: [44.4268, 26.1025], confidence: 0.98 },
-  { keys: ['black sea'], label: 'Black Sea', coords: [43.0, 34.0], confidence: 0.88 },
-  { keys: ['red sea'], label: 'Red Sea', coords: [20.0, 38.5], confidence: 0.88 },
+  { keys: ['kyiv', 'kiev', 'киев', 'київ'], label: 'Kyiv, Ukraine', coords: [50.4501, 30.5234], confidence: 0.98 },
+  { keys: ['kharkiv', 'харьков', 'харків'], label: 'Kharkiv, Ukraine', coords: [49.9935, 36.2304], confidence: 0.98 },
+  { keys: ['odesa', 'odessa', 'одесса', 'одеса'], label: 'Odesa, Ukraine', coords: [46.4825, 30.7233], confidence: 0.98 },
+  { keys: ['dnipro', 'днепр', 'дніпро'], label: 'Dnipro, Ukraine', coords: [48.4647, 35.0462], confidence: 0.98 },
+  { keys: ['zaporizhzhia', 'zaporozhye', 'запорожье', 'запоріжжя'], label: 'Zaporizhzhia, Ukraine', coords: [47.8388, 35.1396], confidence: 0.98 },
+  { keys: ['lviv', 'львов', 'львів'], label: 'Lviv, Ukraine', coords: [49.8397, 24.0297], confidence: 0.98 },
+  { keys: ['donetsk', 'донецк', 'донецьк'], label: 'Donetsk', coords: [48.0159, 37.8029], confidence: 0.96 },
+  { keys: ['crimea', 'sevastopol', 'крым', 'крим', 'севастополь'], label: 'Crimea', coords: [44.9521, 34.1024], confidence: 0.9 },
+  { keys: ['kursk', 'курск'], label: 'Kursk, Russia', coords: [51.7304, 36.1926], confidence: 0.97 },
+  { keys: ['belgorod', 'белгород'], label: 'Belgorod, Russia', coords: [50.5954, 36.5873], confidence: 0.97 },
+  { keys: ['moscow', 'москва'], label: 'Moscow, Russia', coords: [55.7558, 37.6173], confidence: 0.98 },
+  { keys: ['st petersburg', 'saint petersburg', 'санкт-петербург', 'петербург'], label: 'St Petersburg, Russia', coords: [59.9343, 30.3351], confidence: 0.98 },
+  { keys: ['gaza city', 'gaza', 'газа'], label: 'Gaza', coords: [31.5017, 34.4668], confidence: 0.94 },
+  { keys: ['rafah', 'рафах'], label: 'Rafah', coords: [31.2969, 34.2435], confidence: 0.98 },
+  { keys: ['tel aviv', 'тель-авив'], label: 'Tel Aviv, Israel', coords: [32.0853, 34.7818], confidence: 0.98 },
+  { keys: ['jerusalem', 'иерусалим'], label: 'Jerusalem', coords: [31.7683, 35.2137], confidence: 0.98 },
+  { keys: ['beirut', 'бейрут'], label: 'Beirut, Lebanon', coords: [33.8938, 35.5018], confidence: 0.98 },
+  { keys: ['damascus', 'дамаск'], label: 'Damascus, Syria', coords: [33.5138, 36.2765], confidence: 0.98 },
+  { keys: ['aleppo', 'алеппо'], label: 'Aleppo, Syria', coords: [36.2021, 37.1343], confidence: 0.98 },
+  { keys: ['tehran', 'тегеран'], label: 'Tehran, Iran', coords: [35.6892, 51.3890], confidence: 0.98 },
+  { keys: ['isfahan', 'исфахан'], label: 'Isfahan, Iran', coords: [32.6546, 51.6680], confidence: 0.98 },
+  { keys: ['strait of hormuz', 'hormuz', 'ормуз'], label: 'Strait of Hormuz', coords: [26.5667, 56.2500], confidence: 0.92 },
+  { keys: ['baghdad', 'багдад'], label: 'Baghdad, Iraq', coords: [33.3152, 44.3661], confidence: 0.98 },
+  { keys: ['erbil', 'эрбиль'], label: 'Erbil, Iraq', coords: [36.1911, 44.0092], confidence: 0.98 },
+  { keys: ['sanaa', "sana'a", 'сана'], label: "Sana'a, Yemen", coords: [15.3694, 44.1910], confidence: 0.98 },
+  { keys: ['aden', 'аден'], label: 'Aden, Yemen', coords: [12.7855, 45.0187], confidence: 0.98 },
+  { keys: ['riyadh', 'эр-рияд'], label: 'Riyadh, Saudi Arabia', coords: [24.7136, 46.6753], confidence: 0.98 },
+  { keys: ['doha', 'доха'], label: 'Doha, Qatar', coords: [25.2854, 51.5310], confidence: 0.98 },
+  { keys: ['taipei', 'тайбэй'], label: 'Taipei, Taiwan', coords: [25.0330, 121.5654], confidence: 0.98 },
+  { keys: ['beijing', 'пекин'], label: 'Beijing, China', coords: [39.9042, 116.4074], confidence: 0.98 },
+  { keys: ['pyongyang', 'пхеньян'], label: 'Pyongyang, North Korea', coords: [39.0392, 125.7625], confidence: 0.98 },
+  { keys: ['seoul', 'сеул'], label: 'Seoul, South Korea', coords: [37.5665, 126.9780], confidence: 0.98 },
+  { keys: ['tokyo', 'токио'], label: 'Tokyo, Japan', coords: [35.6762, 139.6503], confidence: 0.98 },
+  { keys: ['washington dc', 'washington, d.c.', 'washington d.c.', 'вашингтон'], label: 'Washington, DC', coords: [38.9072, -77.0369], confidence: 0.98 },
+  { keys: ['new york city', 'new york', 'нью-йорк'], label: 'New York, US', coords: [40.7128, -74.0060], confidence: 0.96 },
+  { keys: ['london', 'лондон'], label: 'London, UK', coords: [51.5072, -0.1276], confidence: 0.98 },
+  { keys: ['paris', 'париж'], label: 'Paris, France', coords: [48.8566, 2.3522], confidence: 0.98 },
+  { keys: ['berlin', 'берлин'], label: 'Berlin, Germany', coords: [52.5200, 13.4050], confidence: 0.98 },
+  { keys: ['brussels', 'брюссель'], label: 'Brussels, Belgium', coords: [50.8503, 4.3517], confidence: 0.98 },
+  { keys: ['warsaw', 'варшава'], label: 'Warsaw, Poland', coords: [52.2297, 21.0122], confidence: 0.98 },
+  { keys: ['bucharest', 'бухарест'], label: 'Bucharest, Romania', coords: [44.4268, 26.1025], confidence: 0.98 },
+  { keys: ['black sea', 'черное море', 'чёрное море'], label: 'Black Sea', coords: [43.0, 34.0], confidence: 0.88 },
+  { keys: ['red sea', 'красное море'], label: 'Red Sea', coords: [20.0, 38.5], confidence: 0.88 },
 ];
 
 const parser = new Parser({
@@ -151,7 +185,10 @@ function validDate(input?: string): string {
 }
 
 function titleFingerprint(title: string): Set<string> {
-  const stop = new Set(['the', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'and', 'as', 'at', 'with', 'from', 'after', 'over']);
+  const stop = new Set([
+    'the', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'and', 'as', 'at', 'with', 'from', 'after', 'over',
+    'что', 'как', 'это', 'для', 'при', 'после', 'через', 'уже', 'еще', 'ещё', 'его', 'ее', 'её', 'они', 'она',
+  ]);
   return new Set(
     title
       .toLowerCase()
@@ -175,7 +212,7 @@ function scoreRisk(text: string): number {
   const lower = text.toLowerCase();
   let score = 1;
   for (const keyword of RISK_KEYWORDS) if (lower.includes(keyword)) score += 1.15;
-  if (/breaking|urgent|developing|explosion|missile|air raid/i.test(text)) score += 1;
+  if (/breaking|urgent|developing|explosion|missile|air raid|срочно|взрыв|ракет|воздушная тревога/i.test(text)) score += 1;
   return Math.max(1, Math.min(10, Math.round(score)));
 }
 
@@ -187,6 +224,17 @@ export function locateArticle(text: string): { coords: [number, number] | null; 
     }
   }
   return { coords: null, confidence: 0 };
+}
+
+function rawArticle(source: SourceDef, input: Omit<RawArticle, 'sourceId' | 'source' | 'sourceTier' | 'sourceWeight' | 'independent'>): RawArticle {
+  return {
+    ...input,
+    sourceId: source.id,
+    source: source.name,
+    sourceTier: source.tier,
+    sourceWeight: source.weight,
+    independent: source.independent,
+  };
 }
 
 function parseTelegram(html: string, source: SourceDef): RawArticle[] {
@@ -206,10 +254,10 @@ function parseTelegram(html: string, source: SourceDef): RawArticle[] {
     const firstSentence = description.split(/\n|(?<=[.!?])\s+/)[0] || description;
     const title = firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}...` : firstSentence;
 
-    items.push({ title, description, link, published, source: source.name, independent: source.independent });
+    items.push(rawArticle(source, { title, description, link, published }));
   }
 
-  return items.slice(-12);
+  return items.slice(-source.maxItems);
 }
 
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
@@ -241,13 +289,11 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const xml = await response.text();
       const feed = await parser.parseString(xml);
-      items = (feed.items || []).slice(0, 15).map(item => ({
+      items = (feed.items || []).slice(0, source.maxItems).map(item => rawArticle(source, {
         title: decodeHtml(item.title || ''),
         description: decodeHtml(item.contentSnippet || item.content || item.summary || item.title || ''),
         link: item.link || '',
         published: validDate(item.isoDate || item.pubDate),
-        source: source.name,
-        independent: source.independent,
       })).filter(item => item.title.length >= 8);
     } else if (source.kind === 'telegram' && source.channel) {
       const response = await fetchWithRetry(`https://t.me/s/${source.channel}`, {
@@ -265,7 +311,9 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
         id: source.id,
         name: source.name,
         kind: source.kind,
+        tier: source.tier,
         independent: source.independent,
+        weight: source.weight,
         ok: true,
         duration_ms: Math.round(performance.now() - started),
         items: items.length,
@@ -278,7 +326,9 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
         id: source.id,
         name: source.name,
         kind: source.kind,
+        tier: source.tier,
         independent: source.independent,
+        weight: source.weight,
         ok: false,
         duration_ms: Math.round(performance.now() - started),
         items: 0,
@@ -286,6 +336,40 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
       },
     };
   }
+}
+
+function confidenceFor(articles: RawArticle[], locationConfidence: number) {
+  const bySource = new Map<string, RawArticle>();
+  for (const article of articles) {
+    const previous = bySource.get(article.sourceId);
+    if (!previous || article.sourceWeight > previous.sourceWeight) bySource.set(article.sourceId, article);
+  }
+
+  const evidence = [...bySource.values()];
+  const sourceCount = evidence.length;
+  const independentSources = evidence.filter(item => item.independent).length;
+  const editorialSources = evidence.filter(item => item.sourceTier === 'editorial').length;
+  const evidenceWeight = evidence.reduce((sum, item) => sum + item.sourceWeight, 0);
+  const corroboration = Math.max(0, sourceCount - 1);
+
+  // One strong editorial source lands around medium confidence. High confidence
+  // normally requires corroboration from another distinct source.
+  const score = Math.min(1,
+    0.26
+    + Math.min(0.34, evidenceWeight * 0.15)
+    + Math.min(0.12, independentSources * 0.05)
+    + Math.min(0.12, editorialSources * 0.04)
+    + Math.min(0.08, corroboration * 0.04)
+    + locationConfidence * 0.08,
+  );
+
+  return {
+    score,
+    sourceCount,
+    independentSources,
+    editorialSources,
+    evidenceWeight,
+  };
 }
 
 function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
@@ -306,16 +390,21 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
   }
 
   return clusters.slice(0, 80).map((cluster, index) => {
-    const sorted = [...cluster.articles].sort((a, b) => b.time - a.time);
-    const primary = sorted[0];
-    const sources = [...new Set(sorted.map(item => item.source))];
-    const independentSources = new Set(sorted.filter(item => item.independent).map(item => item.source)).size;
+    const primary = [...cluster.articles].sort((a, b) => b.sourceWeight - a.sourceWeight || b.time - a.time)[0];
+    const evidenceBySource = new Map<string, typeof primary>();
+    for (const article of cluster.articles) {
+      const previous = evidenceBySource.get(article.sourceId);
+      if (!previous || article.sourceWeight > previous.sourceWeight || (article.sourceWeight === previous.sourceWeight && article.time > previous.time)) {
+        evidenceBySource.set(article.sourceId, article);
+      }
+    }
+    const evidence = [...evidenceBySource.values()].sort((a, b) => b.sourceWeight - a.sourceWeight || b.time - a.time);
+    const sources = evidence.map(item => item.source);
     const text = `${primary.title} ${primary.description}`;
     const location = locateArticle(text);
     const risk = scoreRisk(text);
-    const sourceCount = sources.length;
-    const confidenceScore = Math.min(1, 0.38 + sourceCount * 0.18 + independentSources * 0.08 + location.confidence * 0.18);
-    const confidence: NewsItem['confidence'] = confidenceScore >= 0.78 ? 'high' : confidenceScore >= 0.58 ? 'medium' : 'low';
+    const confidenceData = confidenceFor(cluster.articles, location.confidence);
+    const confidence: NewsItem['confidence'] = confidenceData.score >= 0.78 ? 'high' : confidenceData.score >= 0.56 ? 'medium' : 'low';
     const ageMinutes = Math.max(0, Math.round((now - primary.time) / 60_000));
 
     return {
@@ -324,10 +413,12 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
       description: primary.description,
       link: primary.link,
       published: new Date(primary.time).toISOString(),
-      source: sources[0],
+      source: primary.source,
       sources,
-      source_count: sourceCount,
-      independent_sources: independentSources,
+      source_count: confidenceData.sourceCount,
+      independent_sources: confidenceData.independentSources,
+      editorial_sources: confidenceData.editorialSources,
+      evidence_weight: Number(confidenceData.evidenceWeight.toFixed(2)),
       risk_score: risk,
       confidence,
       coords: location.confidence >= 0.85 ? location.coords : null,
@@ -335,7 +426,7 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
       location_confidence: location.confidence,
       age_minutes: ageMinutes,
       machine_assessment: risk >= 8
-        ? `High-priority open-source signal${sourceCount > 1 ? ` corroborated by ${sourceCount} sources` : ''}.`
+        ? `High-priority open-source signal${confidenceData.sourceCount > 1 ? ` corroborated by ${confidenceData.sourceCount} sources` : ''}.`
         : null,
     };
   });
@@ -351,7 +442,17 @@ export async function aggregateNews() {
     health,
     source_count: SOURCES.length,
     healthy_sources: health.filter(source => source.ok).length,
+    independent_sources: SOURCES.filter(source => source.independent).length,
+    editorial_sources: SOURCES.filter(source => source.tier === 'editorial').length,
   };
 }
 
-export const __test = { similarity, clusterArticles, scoreRisk };
+export const __test = {
+  similarity,
+  clusterArticles,
+  scoreRisk,
+  confidenceFor,
+  sources: SOURCES.map(({ id, name, kind, tier, channel, independent, weight, maxItems }) => ({
+    id, name, kind, tier, channel, independent, weight, maxItems,
+  })),
+};
