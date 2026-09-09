@@ -1,25 +1,27 @@
-
 import { NextResponse } from 'next/server';
 
 /**
  * OSIRIS — Space Weather API
  * Fetches real-time solar activity from NOAA Space Weather Prediction Center
  * FREE — No API key required
- * Data: Kp index (geomagnetic), solar flares, CME alerts
+ * Data: Kp index (geomagnetic), solar flares, alerts/watches/warnings
  */
+
+const NOAA_BASE = 'https://services.swpc.noaa.gov';
+
+async function fetchJson(url: string) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`.trim());
+  return response.json();
+}
 
 export async function GET() {
   try {
     const [kpRes, alertsRes, flareRes] = await Promise.allSettled([
-      fetch('https://services.swpc.noaa.gov/json/planetary_k_index_1m.json', {
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.json()),
-      fetch('https://services.swpc.noaa.gov/json/alerts.json', {
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.json()),
-      fetch('https://services.swpc.noaa.gov/json/goes/primary/xray-flares-latest.json', {
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.json()),
+      fetchJson(`${NOAA_BASE}/json/planetary_k_index_1m.json`),
+      // NOAA publishes current Alerts, Watches and Warnings under /products.
+      fetchJson(`${NOAA_BASE}/products/alerts.json`),
+      fetchJson(`${NOAA_BASE}/json/goes/primary/xray-flares-latest.json`),
     ]);
 
     // Latest Kp index (geomagnetic storm indicator)
@@ -84,4 +86,3 @@ export async function GET() {
     }, { status: 500 });
   }
 }
-
