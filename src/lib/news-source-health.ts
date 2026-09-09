@@ -7,6 +7,10 @@ export interface SourceHealthSnapshot {
   avg_latency_ms: number;
   consecutive_failures: number;
   empty_streak: number;
+  stale_streak: number;
+  fresh_items: number;
+  newest_item_at?: string;
+  newest_age_minutes?: number;
   cooldown_until?: string;
   last_error?: string;
   last_success_at?: string;
@@ -19,6 +23,9 @@ interface RuntimeRecord {
   latencyEwma: number;
   consecutiveFailures: number;
   emptyStreak: number;
+  staleStreak: number;
+  freshItems: number;
+  newestItemAt?: number;
   cooldownUntil: number;
   lastError?: string;
   lastSuccessAt?: number;
@@ -53,6 +60,8 @@ function recordFor(id: string): RuntimeRecord {
       latencyEwma: 0,
       consecutiveFailures: 0,
       emptyStreak: 0,
+      staleStreak: 0,
+      freshItems: 0,
       cooldownUntil: 0,
     };
   }
@@ -63,6 +72,10 @@ export function shouldProbeSource(id: string, now = Date.now()) {
   return recordFor(id).cooldownUntil <= now;
 }
 
+/**
+ * Transport-level success. Latency is recorded for diagnostics only and never
+ * changes source state or weight by itself.
+ */
 export function noteSourceSuccess(id: string, latencyMs: number, itemCount: number, now = Date.now()) {
   const record = recordFor(id);
   record.successes += 1;
@@ -75,6 +88,31 @@ export function noteSourceSuccess(id: string, latencyMs: number, itemCount: numb
   record.latencyEwma = record.latencyEwma
     ? record.latencyEwma * (1 - ALPHA) + latencyMs * ALPHA
     : latencyMs;
+}
+
+/**
+ * Content-level health. The caller reports how many stories from this source
+ * survived the live 24-hour news window. Staleness never creates cooldown: a
+ * source that resumes publishing should be observed and recover immediately.
+ */
+export function noteSourceFreshness(
+  id: string,
+  freshItemCount: number,
+  newestItemAt?: number,
+  now = Date.now(),
+) {
+  const record = recordFor(id);
+  record.freshItems = Math.max(0, freshItemCount);
+  if (Number.isFinite(newestItemAt)) record.newestItemAt = newestItemAt;
+  if (freshItemCount > 0) {
+    record.staleStreak = 0;
+  } else {
+    record.staleStreak += 1;
+  }
+  // Freshness is an observation, not a transport attempt.
+  if (record.newestItemAt && record.newestItemAt > now + 5 * 60_000) {
+    record.newestItemAt = undefined;
+  }
 }
 
 export function noteSourceFailure(id: string, error: string, latencyMs: number, now = Date.now()) {
@@ -104,6 +142,8 @@ export function sourceHealthMultiplier(id: string, now = Date.now()) {
   if (successRate < 0.6) multiplier *= 0.72;
   if (record.emptyStreak >= 2) multiplier *= 0.88;
   if (record.emptyStreak >= 4) multiplier *= 0.75;
+  if (record.staleStreak >= 3) multiplier *= 0.9;
+  if (record.staleStreak >= 6) multiplier *= 0.75;
   if (record.consecutiveFailures > 0) multiplier *= Math.max(0.55, 1 - record.consecutiveFailures * 0.12);
   if (record.cooldownUntil > now) multiplier *= 0.5;
 
@@ -117,7 +157,11 @@ export function getSourceHealthSnapshot(id: string, baseWeight = 1, now = Date.n
   const inCooldown = record.cooldownUntil > now;
   const degraded = record.consecutiveFailures > 0
     || record.emptyStreak >= 2
+    || record.staleStreak >= 3
     || successRate < 0.85;
+  const newestAgeMinutes = record.newestItemAt
+    ? Math.max(0, Math.round((now - record.newestItemAt) / 60_000))
+    : undefined;
 
   return {
     state: inCooldown ? 'cooldown' : degraded ? 'degraded' : 'healthy',
@@ -126,6 +170,10 @@ export function getSourceHealthSnapshot(id: string, baseWeight = 1, now = Date.n
     avg_latency_ms: Math.round(record.latencyEwma),
     consecutive_failures: record.consecutiveFailures,
     empty_streak: record.emptyStreak,
+    stale_streak: record.staleStreak,
+    fresh_items: record.freshItems,
+    newest_item_at: record.newestItemAt ? new Date(record.newestItemAt).toISOString() : undefined,
+    newest_age_minutes: newestAgeMinutes,
     cooldown_until: inCooldown ? new Date(record.cooldownUntil).toISOString() : undefined,
     last_error: record.lastError,
     last_success_at: record.lastSuccessAt ? new Date(record.lastSuccessAt).toISOString() : undefined,
