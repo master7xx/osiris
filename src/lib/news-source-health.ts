@@ -35,8 +35,6 @@ declare global {
 }
 
 const ALPHA = 0.25;
-const SLOW_MS = 2500;
-const VERY_SLOW_MS = 5000;
 const MAX_COOLDOWN_MS = 15 * 60_000;
 
 function root(): RuntimeState {
@@ -106,8 +104,6 @@ export function sourceHealthMultiplier(id: string, now = Date.now()) {
   if (successRate < 0.6) multiplier *= 0.72;
   if (record.emptyStreak >= 2) multiplier *= 0.88;
   if (record.emptyStreak >= 4) multiplier *= 0.75;
-  if (record.latencyEwma > SLOW_MS) multiplier *= 0.9;
-  if (record.latencyEwma > VERY_SLOW_MS) multiplier *= 0.82;
   if (record.consecutiveFailures > 0) multiplier *= Math.max(0.55, 1 - record.consecutiveFailures * 0.12);
   if (record.cooldownUntil > now) multiplier *= 0.5;
 
@@ -121,8 +117,7 @@ export function getSourceHealthSnapshot(id: string, baseWeight = 1, now = Date.n
   const inCooldown = record.cooldownUntil > now;
   const degraded = record.consecutiveFailures > 0
     || record.emptyStreak >= 2
-    || successRate < 0.85
-    || record.latencyEwma > SLOW_MS;
+    || successRate < 0.85;
 
   return {
     state: inCooldown ? 'cooldown' : degraded ? 'degraded' : 'healthy',
