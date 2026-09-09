@@ -1,5 +1,6 @@
 import { stealthFetch } from '@/lib/stealthFetch';
 import { cachedSource } from '@/lib/sourceCache';
+import { noteCctvProviderScope } from '@/lib/cctv-provider-health';
 import type { CctvCamera, CctvStreamType } from './types';
 
 /**
@@ -221,68 +222,116 @@ async function fetchBatch(ids: string[]): Promise<OpenCctvRecord[]> {
     },
     body: JSON.stringify({ ids }),
   });
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`OpenCCTV batch HTTP ${res.status}`);
   const data = await res.json();
   return Array.isArray(data) ? data.filter(Boolean) : [];
 }
 
 /** The marker index, fetched once and shared by every macro-region. */
 const markerIndex = cachedSource('opencctv-index', async (): Promise<MarkerIndex[]> => {
-  const res = await stealthFetch(MARKERS, {
-    signal: AbortSignal.timeout(30000),
-    headers: { Accept: 'application/json', Referer: 'https://opencctv.org/' },
-  });
-  if (!res.ok) throw new Error(`OpenCCTV markers HTTP ${res.status}`);
+  const started = Date.now();
+  try {
+    const res = await stealthFetch(MARKERS, {
+      signal: AbortSignal.timeout(30000),
+      headers: { Accept: 'application/json', Referer: 'https://opencctv.org/' },
+    });
+    if (!res.ok) throw new Error(`OpenCCTV markers HTTP ${res.status}`);
 
-  const index = (await res.json()) as MarkerIndex;
-  if (!Array.isArray(index.ids) || !Array.isArray(index.lats) || !Array.isArray(index.lngs)) {
-    throw new Error('OpenCCTV markers returned no index');
+    const index = (await res.json()) as MarkerIndex;
+    if (!Array.isArray(index.ids) || !Array.isArray(index.lats) || !Array.isArray(index.lngs)) {
+      throw new Error('OpenCCTV markers returned no index');
+    }
+
+    noteCctvProviderScope('opencctv', 'index', {
+      state: 'healthy',
+      cameras: 0,
+      durationMs: Date.now() - started,
+    });
+
+    /* Wrapped in an array because the cache stores lists; it is one 7.3 MB
+       download shared by all macro-regions rather than one download each. */
+    return [index];
+  } catch (error) {
+    noteCctvProviderScope('opencctv', 'index', {
+      state: 'error',
+      cameras: 0,
+      durationMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-  /* Wrapped in an array because the cache stores lists; it is one 7.3 MB
-     download shared by all macro-regions rather than one download each. */
-  return [index];
 });
 
-function loader(region: string, spec: RegionSpec) {
+function loader(scope: string, region: string, spec: RegionSpec) {
   return async (): Promise<CctvCamera[]> => {
-    const [index] = await markerIndex();
-    const ids = index?.ids ?? [];
-    const lats = index?.lats ?? [];
-    const lngs = index?.lngs ?? [];
-
-    const candidates = new Map<string, MarkerCandidate>();
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
-      const lat = lats[i];
-      const lng = lngs[i];
-      if (!id || !spec.areas.some(bounds => inside(bounds, lat, lng))) continue;
-      candidates.set(id, { id, lat, lng });
-    }
-
-    const inRegion = [...candidates.values()];
-    const wanted = sampleSpatial(inRegion, spec.cap, spec.cellDegrees);
-    const chunks: string[][] = [];
-    for (let i = 0; i < wanted.length; i += BATCH_SIZE) {
-      chunks.push(wanted.slice(i, i + BATCH_SIZE).map(item => item.id));
-    }
-
-    const results = await Promise.allSettled(chunks.map(fetchBatch));
-    const seen = new Map<string, CctvCamera>();
-    for (const r of results) {
-      if (r.status !== 'fulfilled') continue;
-      for (const rec of r.value) {
-        const cam = mapRecord(rec);
-        if (cam) seen.set(cam.id, cam);
+    const started = Date.now();
+    try {
+      const [index] = await markerIndex();
+      if (!index) {
+        noteCctvProviderScope('opencctv', scope, {
+          state: 'error',
+          cameras: 0,
+          durationMs: Date.now() - started,
+          error: 'marker index unavailable',
+        });
+        return [];
       }
-    }
 
-    const cams = [...seen.values()];
-    console.log(`[OSIRIS] ${region} cameras — OpenCCTV: ${cams.length} of ${inRegion.length} in region`);
-    return cams;
+      const ids = index.ids ?? [];
+      const lats = index.lats ?? [];
+      const lngs = index.lngs ?? [];
+
+      const candidates = new Map<string, MarkerCandidate>();
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const lat = lats[i];
+        const lng = lngs[i];
+        if (!id || !spec.areas.some(bounds => inside(bounds, lat, lng))) continue;
+        candidates.set(id, { id, lat, lng });
+      }
+
+      const inRegion = [...candidates.values()];
+      const wanted = sampleSpatial(inRegion, spec.cap, spec.cellDegrees);
+      const chunks: string[][] = [];
+      for (let i = 0; i < wanted.length; i += BATCH_SIZE) {
+        chunks.push(wanted.slice(i, i + BATCH_SIZE).map(item => item.id));
+      }
+
+      const results = await Promise.allSettled(chunks.map(fetchBatch));
+      const failed = results.filter(result => result.status === 'rejected');
+      const seen = new Map<string, CctvCamera>();
+      for (const result of results) {
+        if (result.status !== 'fulfilled') continue;
+        for (const rec of result.value) {
+          const cam = mapRecord(rec);
+          if (cam) seen.set(cam.id, cam);
+        }
+      }
+
+      const cams = [...seen.values()];
+      const state = failed.length === 0 ? 'healthy' : cams.length > 0 ? 'partial' : 'error';
+      noteCctvProviderScope('opencctv', scope, {
+        state,
+        cameras: cams.length,
+        durationMs: Date.now() - started,
+        error: failed.length ? `${failed.length}/${chunks.length} batch requests failed` : undefined,
+      });
+
+      console.log(`[OSIRIS] ${region} cameras — OpenCCTV: ${cams.length} of ${inRegion.length} in region`);
+      return cams;
+    } catch (error) {
+      noteCctvProviderScope('opencctv', scope, {
+        state: 'error',
+        cameras: 0,
+        durationMs: Date.now() - started,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   };
 }
 
-export const fetchEastAsiaCameras = cachedSource('eastasia', loader('East Asia', REGIONS.eastasia));
-export const fetchSeAsiaCameras = cachedSource('seasia', loader('Southeast Asia', REGIONS.seasia));
-export const fetchWestAsiaCameras = cachedSource('westasia', loader('West, Central & North Asia', REGIONS.westasia));
-export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('Europe', REGIONS.europe));
+export const fetchEastAsiaCameras = cachedSource('eastasia', loader('eastasia', 'East Asia', REGIONS.eastasia));
+export const fetchSeAsiaCameras = cachedSource('seasia', loader('seasia', 'Southeast Asia', REGIONS.seasia));
+export const fetchWestAsiaCameras = cachedSource('westasia', loader('westasia', 'West, Central & North Asia', REGIONS.westasia));
+export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('europe', 'Europe', REGIONS.europe));
