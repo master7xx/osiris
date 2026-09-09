@@ -42,6 +42,7 @@ interface ProviderRecord {
   scopes: Record<string, ScopeRecord>;
   responseCameras: number;
   responseAt?: number;
+  lastResponseSuccessAt?: number;
 }
 
 interface RuntimeState {
@@ -59,6 +60,11 @@ const DEFINITIONS: Record<CctvProviderId, { label: string; kind: CctvProviderKin
   official: { label: 'Official', kind: 'official', enabled: true },
   curated: { label: 'Curated', kind: 'curated', enabled: true },
 };
+
+function providerEnabledByConfig(id: CctvProviderId) {
+  if (id === 'windy') return Boolean(process.env.WINDY_WEBCAMS_API_KEY?.trim());
+  return DEFINITIONS[id].enabled;
+}
 
 function emptyRecord(): ProviderRecord {
   return { scopes: {}, responseCameras: 0 };
@@ -92,8 +98,7 @@ export function noteCctvProviderScope(
 ) {
   const now = input.now ?? Date.now();
   const provider = root().providers[id];
-  const definition = DEFINITIONS[id];
-  const enabled = input.enabled ?? definition.enabled;
+  const enabled = input.enabled ?? providerEnabledByConfig(id);
   const cameras = Math.max(0, Math.round(input.cameras ?? 0));
   const previous = provider.scopes[scope];
 
@@ -122,8 +127,10 @@ export function noteCctvProviderResponse(cameras: Array<{ id?: string; source?: 
 
   const state = root();
   for (const id of Object.keys(counts) as CctvProviderId[]) {
-    state.providers[id].responseCameras = counts[id];
-    state.providers[id].responseAt = now;
+    const provider = state.providers[id];
+    provider.responseCameras = counts[id];
+    provider.responseAt = now;
+    if (counts[id] > 0) provider.lastResponseSuccessAt = now;
   }
 }
 
@@ -143,8 +150,15 @@ export function classifyCctvProvider(camera: { id?: string; source?: string }): 
   return 'official';
 }
 
-function aggregateState(id: CctvProviderId, scopes: ScopeRecord[], responseCameras: number): CctvProviderState {
-  if (!scopes.length) return responseCameras > 0 ? 'healthy' : 'idle';
+function aggregateState(
+  scopes: ScopeRecord[],
+  responseCameras: number,
+  defaultEnabled: boolean,
+): CctvProviderState {
+  if (!scopes.length) {
+    if (!defaultEnabled) return 'disabled';
+    return responseCameras > 0 ? 'healthy' : 'idle';
+  }
 
   const enabled = scopes.filter(scope => scope.enabled && scope.state !== 'disabled');
   if (!enabled.length) return scopes.some(scope => scope.state === 'disabled') ? 'disabled' : 'idle';
@@ -169,6 +183,7 @@ export function getCctvProviderHealth(): CctvProviderHealthSnapshot[] {
   return (Object.keys(DEFINITIONS) as CctvProviderId[]).map(id => {
     const definition = DEFINITIONS[id];
     const provider = runtime.providers[id];
+    const defaultEnabled = providerEnabledByConfig(id);
     const entries = Object.entries(provider.scopes);
     const scopes = entries.map(([scope, record]): CctvProviderScopeSnapshot => ({
       scope,
@@ -184,9 +199,13 @@ export function getCctvProviderHealth(): CctvProviderHealthSnapshot[] {
     const records = entries.map(([, record]) => record);
     const enabled = records.length
       ? records.some(record => record.enabled && record.state !== 'disabled')
-      : definition.enabled;
+      : defaultEnabled;
     const latestAttempt = Math.max(0, ...records.map(record => record.lastAttemptAt ?? 0), provider.responseAt ?? 0);
-    const latestSuccess = Math.max(0, ...records.map(record => record.lastSuccessAt ?? 0));
+    const latestSuccess = Math.max(
+      0,
+      ...records.map(record => record.lastSuccessAt ?? 0),
+      provider.lastResponseSuccessAt ?? 0,
+    );
     const duration = records.length ? Math.max(...records.map(record => record.durationMs ?? 0)) : undefined;
     const latestError = records
       .filter(record => record.lastError)
@@ -196,7 +215,7 @@ export function getCctvProviderHealth(): CctvProviderHealthSnapshot[] {
       id,
       label: definition.label,
       kind: definition.kind,
-      state: aggregateState(id, records, provider.responseCameras),
+      state: aggregateState(records, provider.responseCameras, defaultEnabled),
       enabled,
       cameras: records.reduce((sum, record) => sum + record.cameras, 0),
       response_cameras: provider.responseCameras,
