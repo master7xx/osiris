@@ -1,4 +1,5 @@
 import { stealthFetch } from '@/lib/stealthFetch';
+import { cachedSource } from '@/lib/sourceCache';
 import { noteCctvProviderScope } from '@/lib/cctv-provider-health';
 import type { CctvCamera } from './types';
 
@@ -190,14 +191,20 @@ async function fetchMacro(scope: string, label: string, cells: Cell[]): Promise<
   return [...cameras.values()];
 }
 
-export function fetchWindyEuropeCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('europe', 'Europe', EUROPE);
-}
+/* These macro fetchers are shared by multiple route regions. Caching at this
+ * level prevents `region=all` from querying the same Windy cells twice when,
+ * for example, Eurasia is requested both through westasia and europe-live. */
+export const fetchWindyEuropeCameras = cachedSource(
+  'windy:europe',
+  () => fetchMacro('europe', 'Europe', EUROPE),
+);
 
-export function fetchWindyEurasiaCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('eurasia', 'Russia & Eurasia', EURASIA);
-}
+export const fetchWindyEurasiaCameras = cachedSource(
+  'windy:eurasia',
+  () => fetchMacro('eurasia', 'Russia & Eurasia', EURASIA),
+);
 
-export function fetchWindyEastAsiaCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('eastasia', 'East Asia', EAST_ASIA);
-}
+export const fetchWindyEastAsiaCameras = cachedSource(
+  'windy:eastasia',
+  () => fetchMacro('eastasia', 'East Asia', EAST_ASIA),
+);
