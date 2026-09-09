@@ -3,16 +3,12 @@ import { cachedSource } from '@/lib/sourceCache';
 import type { CctvCamera, CctvStreamType } from './types';
 
 /**
- * OSIRIS — Asian cameras via the OpenCCTV directory.
+ * OSIRIS — macro-region cameras via the OpenCCTV directory.
  *
- * Source: https://opencctv.org — an aggregator carrying ~145,000 cameras, of
- * which ~30,000 sit inside the Asian boxes below, most of them republished
- * from official city and prefectural operators (Busan and Ansan's ITS, Seoul,
- * Hong Kong's Observatory, Japan's river and road bureaus). It fills the
- * region the traffic-authority feeds cannot: South Korea, Indonesia, Vietnam
- * and the Philippines publish no open machine-readable CCTV index of their
- * own — every national portal checked (Korea's UTIC and ITS, Taiwan's TDX)
- * gates its camera list behind an API key.
+ * Source: https://opencctv.org — an aggregator carrying ~145,000 public
+ * cameras worldwide. OSIRIS uses it as a broad coverage layer underneath the
+ * higher-quality national and municipal adapters: Europe, East/Southeast Asia,
+ * and the West/Central/North Asian belt including Russia and Siberia.
  *
  * Two endpoints, both the ones the site's own map calls:
  *
@@ -23,9 +19,9 @@ import type { CctvCamera, CctvStreamType } from './types';
  *                               and narrow locally.
  *   POST /api/cameras/batch     {ids:[…]} → full records. It answers with at
  *                               most 50 rows however many ids are sent, which
- *                               is what BATCH_SIZE encodes and why the region
- *                               is sampled rather than taken whole: 24,000
- *                               cameras would be 483 round trips.
+ *                               is what BATCH_SIZE encodes and why large
+ *                               regions are spatially sampled rather than
+ *                               materialised wholesale.
  */
 
 const MARKERS = 'https://opencctv.org/api/cameras/markers';
@@ -33,21 +29,48 @@ const BATCH = 'https://opencctv.org/api/cameras/batch';
 
 /** The server truncates a batch response to 50 rows regardless of ids sent. */
 const BATCH_SIZE = 50;
-/**
- * Asia is split rather than taken whole so a viewport over Jakarta does not
- * pay for Japan. Each sub-region carries its own ceiling on cameras
- * materialised, which is what keeps this to tens of round trips, not 600.
- */
-interface Bounds { minLat: number; maxLat: number; minLng: number; maxLng: number }
 
-const REGIONS: Record<string, { bounds: Bounds; cap: number }> = {
+interface Bounds { minLat: number; maxLat: number; minLng: number; maxLng: number }
+interface RegionSpec {
+  /** A region can be a union of boxes — useful for West/Central Asia + Russia. */
+  areas: Bounds[];
+  cap: number;
+  /** Coarse cell size used by spatial sampling. */
+  cellDegrees: number;
+}
+
+const REGIONS: Record<string, RegionSpec> = {
   /* China, Japan, the Koreas and Taiwan — ~24,000 candidates. */
-  eastasia: { bounds: { minLat: 18, maxLat: 46, minLng: 73.5, maxLng: 146 }, cap: 1200 },
+  eastasia: {
+    areas: [{ minLat: 18, maxLat: 46, minLng: 73.5, maxLng: 146 }],
+    cap: 1200,
+    cellDegrees: 3,
+  },
   /* Indochina, Indonesia, the Philippines — ~7,700 candidates. */
-  seasia: { bounds: { minLat: -11, maxLat: 24, minLng: 92, maxLng: 130 }, cap: 800 },
-  /* The Gulf, Iran, Central Asia and the subcontinent — ~950 between them, so
-     the cap is never the binding constraint here; it is a guard, not a quota. */
-  westasia: { bounds: { minLat: 5, maxLat: 56, minLng: 25, maxLng: 92 }, cap: 600 },
+  seasia: {
+    areas: [{ minLat: -11, maxLat: 24, minLng: 92, maxLng: 130 }],
+    cap: 800,
+    cellDegrees: 2.5,
+  },
+  /* Existing West/Central Asia plus the northern Eurasian belt. Keeping both
+     inside the existing `westasia` loader avoids another giant marker-index
+     download or another viewport registry dependency; the shared index is
+     still fetched only once. */
+  westasia: {
+    areas: [
+      { minLat: 5, maxLat: 56, minLng: 25, maxLng: 92 },
+      { minLat: 46, maxLat: 82, minLng: 30, maxLng: 180 },
+    ],
+    cap: 1200,
+    cellDegrees: 4,
+  },
+  /* Broad European discovery layer. National adapters remain authoritative;
+     this fills gaps between them and greatly improves geographic density. */
+  europe: {
+    areas: [{ minLat: 35, maxLat: 72, minLng: -12, maxLng: 32 }],
+    cap: 1200,
+    cellDegrees: 3,
+  },
 };
 
 /** The index, as three parallel arrays. */
@@ -55,6 +78,12 @@ interface MarkerIndex {
   ids?: string[];
   lats?: number[];
   lngs?: number[];
+}
+
+export interface MarkerCandidate {
+  id: string;
+  lat: number;
+  lng: number;
 }
 
 /** One row from /api/cameras/batch (only the fields we consume). */
@@ -120,9 +149,8 @@ export function mapRecord(rec: OpenCctvRecord): CctvCamera | null {
 }
 
 /**
- * Thin the candidates down to MAX_CAMERAS by walking the list at a fixed
- * stride. The index is ordered by id, which groups cameras by operator and so
- * by place — taking the first N would return one city and call it a region.
+ * Thin a list to a cap by walking it at a fixed stride.
+ * Kept as a generic helper and as a useful fallback for tests/small lists.
  */
 export function sample<T>(items: T[], cap: number): T[] {
   if (items.length <= cap) return items;
@@ -132,6 +160,54 @@ export function sample<T>(items: T[], cap: number): T[] {
     out.push(items[Math.floor(i)]);
   }
   return out;
+}
+
+/**
+ * Prefer geographic breadth over index order.
+ *
+ * OpenCCTV's marker list is grouped strongly by operator/place. A simple
+ * stride helps, but a dense operator can still dominate a continental sample.
+ * Bucketing markers into coarse geographic cells and taking one item from each
+ * cell before taking a second gives sparse countries and remote regions a fair
+ * chance to appear without increasing the request cap.
+ */
+export function sampleSpatial(
+  items: MarkerCandidate[],
+  cap: number,
+  cellDegrees = 3,
+): MarkerCandidate[] {
+  if (items.length <= cap) return items;
+  if (cap <= 0) return [];
+
+  const buckets = new Map<string, MarkerCandidate[]>();
+  for (const item of items) {
+    const latCell = Math.floor(item.lat / cellDegrees);
+    const lngCell = Math.floor(item.lng / cellDegrees);
+    const key = `${latCell}:${lngCell}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(item);
+    else buckets.set(key, [item]);
+  }
+
+  const queues = [...buckets.values()];
+  const out: MarkerCandidate[] = [];
+  for (let depth = 0; out.length < cap; depth++) {
+    let added = false;
+    for (const bucket of queues) {
+      if (depth >= bucket.length) continue;
+      out.push(bucket[depth]);
+      added = true;
+      if (out.length === cap) break;
+    }
+    if (!added) break;
+  }
+  return out;
+}
+
+function inside(bounds: Bounds, lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat > bounds.minLat && lat < bounds.maxLat &&
+    lng > bounds.minLng && lng < bounds.maxLng;
 }
 
 async function fetchBatch(ids: string[]): Promise<OpenCctvRecord[]> {
@@ -150,7 +226,7 @@ async function fetchBatch(ids: string[]): Promise<OpenCctvRecord[]> {
   return Array.isArray(data) ? data.filter(Boolean) : [];
 }
 
-/** The marker index, fetched once and shared by every Asian sub-region. */
+/** The marker index, fetched once and shared by every macro-region. */
 const markerIndex = cachedSource('opencctv-index', async (): Promise<MarkerIndex[]> => {
   const res = await stealthFetch(MARKERS, {
     signal: AbortSignal.timeout(30000),
@@ -163,31 +239,31 @@ const markerIndex = cachedSource('opencctv-index', async (): Promise<MarkerIndex
     throw new Error('OpenCCTV markers returned no index');
   }
   /* Wrapped in an array because the cache stores lists; it is one 7.3 MB
-     download shared by all three regions rather than one download each. */
+     download shared by all macro-regions rather than one download each. */
   return [index];
 });
 
-function loader(region: string, bounds: Bounds, cap: number) {
+function loader(region: string, spec: RegionSpec) {
   return async (): Promise<CctvCamera[]> => {
     const [index] = await markerIndex();
     const ids = index?.ids ?? [];
     const lats = index?.lats ?? [];
     const lngs = index?.lngs ?? [];
 
-    const inRegion: string[] = [];
+    const candidates = new Map<string, MarkerCandidate>();
     for (let i = 0; i < ids.length; i++) {
+      const id = ids[i];
       const lat = lats[i];
       const lng = lngs[i];
-      if (lat > bounds.minLat && lat < bounds.maxLat &&
-          lng > bounds.minLng && lng < bounds.maxLng) {
-        inRegion.push(ids[i]);
-      }
+      if (!id || !spec.areas.some(bounds => inside(bounds, lat, lng))) continue;
+      candidates.set(id, { id, lat, lng });
     }
 
-    const wanted = sample(inRegion, cap);
+    const inRegion = [...candidates.values()];
+    const wanted = sampleSpatial(inRegion, spec.cap, spec.cellDegrees);
     const chunks: string[][] = [];
     for (let i = 0; i < wanted.length; i += BATCH_SIZE) {
-      chunks.push(wanted.slice(i, i + BATCH_SIZE));
+      chunks.push(wanted.slice(i, i + BATCH_SIZE).map(item => item.id));
     }
 
     const results = await Promise.allSettled(chunks.map(fetchBatch));
@@ -206,6 +282,7 @@ function loader(region: string, bounds: Bounds, cap: number) {
   };
 }
 
-export const fetchEastAsiaCameras = cachedSource('eastasia', loader('East Asia', REGIONS.eastasia.bounds, REGIONS.eastasia.cap));
-export const fetchSeAsiaCameras = cachedSource('seasia', loader('Southeast Asia', REGIONS.seasia.bounds, REGIONS.seasia.cap));
-export const fetchWestAsiaCameras = cachedSource('westasia', loader('West & Central Asia', REGIONS.westasia.bounds, REGIONS.westasia.cap));
+export const fetchEastAsiaCameras = cachedSource('eastasia', loader('East Asia', REGIONS.eastasia));
+export const fetchSeAsiaCameras = cachedSource('seasia', loader('Southeast Asia', REGIONS.seasia));
+export const fetchWestAsiaCameras = cachedSource('westasia', loader('West, Central & North Asia', REGIONS.westasia));
+export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('Europe', REGIONS.europe));
