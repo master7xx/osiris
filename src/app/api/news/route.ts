@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { aggregateNews } from '@/lib/news-aggregator';
+import { getSourceHealthSnapshot, noteSourceFreshness } from '@/lib/news-source-health';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,11 +15,37 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const result = await aggregateNews();
+    const now = Date.now();
+
+    // Freshness is evaluated from stories that survived the aggregator's live
+    // 24-hour window. A transport failure does not also count as a stale cycle;
+    // the reliability model already accounts for that separately.
+    for (const source of result.health) {
+      if (!source.ok || source.skipped) continue;
+      const stories = result.news.filter(story =>
+        story.source === source.name || story.sources?.includes(source.name),
+      );
+      const newestItemAt = stories.reduce((latest, story) => {
+        const published = Date.parse(story.published);
+        return Number.isFinite(published) ? Math.max(latest, published) : latest;
+      }, 0);
+      noteSourceFreshness(source.id, stories.length, newestItemAt || undefined, now);
+    }
+
+    const health = result.health.map(source => ({
+      ...source,
+      ...getSourceHealthSnapshot(source.id, source.weight, now),
+    }));
+
     return NextResponse.json(
       {
         ...result,
+        health,
+        healthy_sources: health.filter(source => source.state === 'healthy').length,
+        degraded_sources: health.filter(source => source.state === 'degraded').length,
+        cooldown_sources: health.filter(source => source.state === 'cooldown').length,
         total: result.news.length,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(now).toISOString(),
       },
       {
         headers: {

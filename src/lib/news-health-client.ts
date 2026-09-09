@@ -16,6 +16,10 @@ export interface ClientNewsSourceHealth {
   avg_latency_ms: number;
   consecutive_failures: number;
   empty_streak: number;
+  stale_streak: number;
+  fresh_items: number;
+  newest_item_at?: string;
+  newest_age_minutes?: number;
   cooldown_until?: string;
   error?: string;
   last_error?: string;
