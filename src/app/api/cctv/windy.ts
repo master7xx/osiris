@@ -2,7 +2,7 @@ import { stealthFetch } from '@/lib/stealthFetch';
 import type { CctvCamera } from './types';
 
 const API = 'https://api.windy.com/webcams/api/v3/webcams';
-const SOURCE = 'Windy.com Webcams';
+const SOURCE = 'Webcams provided by Windy.com';
 const LIMIT = 50;
 
 type WindyPlayerValue = string | { embed?: string | null } | null | undefined;
