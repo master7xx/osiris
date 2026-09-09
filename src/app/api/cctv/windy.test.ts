@@ -28,7 +28,7 @@ describe('mapWindyWebcam', () => {
       stream_url: 'https://webcams.windy.com/webcams/public/embed/player/12345/live',
       stream_type: 'iframe',
       external_url: 'https://www.windy.com/webcams/12345',
-      source: 'Windy.com Webcams',
+      source: 'Webcams provided by Windy.com',
     });
   });
 
