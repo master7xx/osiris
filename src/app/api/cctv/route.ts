@@ -68,7 +68,7 @@ async function tryAdaptiveFallback(
 }
 
 export async function GET(request: Request) {
-  let response = await getCctvWithMacroRouting(request);
+  let response: Response = await getCctvWithMacroRouting(request);
   let payload = await readPayload(response);
 
   ({ response, payload } = await tryAdaptiveFallback(request, response, payload));
