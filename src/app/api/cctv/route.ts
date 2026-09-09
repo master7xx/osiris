@@ -38,6 +38,7 @@ import { fetchFloridaCameras } from './florida';
 import { fetchGeorgiaCameras } from './georgia';
 import { fetchNorthCarolinaCameras } from './northcarolina';
 import { fetchArizonaCameras } from './arizona';
+import { fetchMarylandCameras } from './maryland';
 import { fetchEastAsiaCameras, fetchSeAsiaCameras, fetchWestAsiaCameras } from './opencctv';
 import {
   fetchLatamLiveCameras,
@@ -237,7 +238,6 @@ async function fetchCanadaCameras(): Promise<any[]> {
       }
     }
   }
-
   // Curated Toronto cameras (fallback if 511ON fails)
   const curated = [
     { id: 'tor-1', lat: 43.6532, lng: -79.3832, name: 'Yonge / Dundas Square', city: 'Toronto', country: 'Canada', feed_url: 'https://511on.ca/api/v2/get/cameras', source: '511 Ontario' },
@@ -472,6 +472,7 @@ const RAW_REGION_FETCHERS: Record<string, RegionFetcher> = {
   'uk': fetchTfLCameras,
   'us-west': async () => { const [w, c] = await Promise.all([fetchWSDOTCameras(), fetchCaltransCameras()]); return [...w, ...c]; },
   'us-east': fetchUSEastCameras,
+  'maryland': fetchMarylandCameras,
   'us-central': fetchUSCentralCameras,
   'canada': fetchCanadaCameras,
   'europe': fetchEuropeCameras,
@@ -562,6 +563,8 @@ function getRegionsForBounds(lat: number, lng: number, radius: number): string[]
   if (lat > 49 && lat < 61 && lng > -8 && lng < 2) regions.push('uk');
   // US-East
   if (lat > 24 && lat < 49 && lng > -85 && lng < -66) regions.push('us-east');
+  // Maryland CHART — isolated source so a slow upstream cannot delay curated us-east cameras
+  if (lat > 37.8 && lat < 39.8 && lng > -79.6 && lng < -75.0) regions.push('maryland');
   // US-West
   if (lat > 24 && lat < 49 && lng > -125 && lng < -100) regions.push('us-west');
   // Utah (UDOT) — explicit, since us-west only covers WA + CA
