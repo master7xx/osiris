@@ -1,4 +1,11 @@
 import Parser from 'rss-parser';
+import {
+  getSourceHealthSnapshot,
+  noteSourceFailure,
+  noteSourceSuccess,
+  shouldProbeSource,
+  type SourceRuntimeState,
+} from './news-source-health';
 
 export type NewsSourceTier = 'editorial' | 'osint' | 'broadcaster';
 
@@ -9,7 +16,18 @@ export interface NewsSourceHealth {
   tier: NewsSourceTier;
   independent: boolean;
   weight: number;
+  effective_weight: number;
+  state: SourceRuntimeState;
+  success_rate: number;
+  avg_latency_ms: number;
+  consecutive_failures: number;
+  empty_streak: number;
+  cooldown_until?: string;
+  last_error?: string;
+  last_success_at?: string;
+  last_attempt_at?: string;
   ok: boolean;
+  skipped?: boolean;
   duration_ms: number;
   items: number;
   error?: string;
@@ -60,34 +78,17 @@ interface SourceDef {
   maxItems: number;
 }
 
-/**
- * Source policy:
- * - editorial: named newsrooms with original reporting / editorial accountability;
- * - osint: fast situational-awareness sources that are useful but should not outrank
- *   corroborated editorial reporting on their own;
- * - broadcaster: broad conventional coverage used for cross-checking and global reach.
- *
- * All sources are fetched in parallel. `weight` is evidence quality, not political
- * preference. A single low-weight OSINT post cannot become a high-confidence incident;
- * corroboration from distinct sources is what raises confidence.
- */
 const SOURCES: SourceDef[] = [
   { id: 'bbc-world', name: 'BBC', kind: 'rss', tier: 'broadcaster', url: 'https://feeds.bbci.co.uk/news/world/rss.xml', independent: false, weight: 0.95, maxItems: 12 },
   { id: 'guardian-world', name: 'Guardian', kind: 'rss', tier: 'editorial', url: 'https://www.theguardian.com/world/rss', independent: true, weight: 1.05, maxItems: 12 },
   { id: 'aljazeera', name: 'Al Jazeera', kind: 'rss', tier: 'broadcaster', url: 'https://www.aljazeera.com/xml/rss/all.xml', independent: false, weight: 0.95, maxItems: 12 },
   { id: 'euronews-world', name: 'Euronews', kind: 'rss', tier: 'broadcaster', url: 'https://www.euronews.com/rss?format=mrss&level=theme&name=news', independent: false, weight: 0.85, maxItems: 10 },
-
-  // Independent editorial Telegram tier. These are deliberately capped so one
-  // high-volume newsroom cannot dominate the feed merely by posting more often.
   { id: 'kyiv-independent', name: 'Kyiv Independent', kind: 'telegram', tier: 'editorial', channel: 'KyivIndependent_official', independent: true, weight: 1.15, maxItems: 8 },
   { id: 'astra', name: 'ASTRA', kind: 'telegram', tier: 'editorial', channel: 'astrapress', independent: true, weight: 1.10, maxItems: 8 },
   { id: 'meduza', name: 'Meduza', kind: 'telegram', tier: 'editorial', channel: 'meduzalive', independent: true, weight: 1.10, maxItems: 8 },
   { id: 'important-stories', name: 'Important Stories', kind: 'telegram', tier: 'editorial', channel: 'istories_media', independent: true, weight: 1.10, maxItems: 8 },
   { id: 'the-insider', name: 'The Insider', kind: 'telegram', tier: 'editorial', channel: 'theinsider', independent: true, weight: 1.10, maxItems: 8 },
   { id: 'novaya-europe', name: 'Novaya Gazeta Europe', kind: 'telegram', tier: 'editorial', channel: 'novaya_europe', independent: true, weight: 1.05, maxItems: 8 },
-
-  // Fast OSINT tier. Kept for speed, but deliberately weighted below editorial
-  // reporting unless several distinct sources corroborate the same incident.
   { id: 'citeam', name: 'Conflict Intelligence Team', kind: 'telegram', tier: 'osint', channel: 'CITeam', independent: true, weight: 1.05, maxItems: 8 },
   { id: 'wartranslated', name: 'WarTranslated', kind: 'telegram', tier: 'osint', channel: 'wartranslated', independent: true, weight: 0.85, maxItems: 8 },
   { id: 'noelreports', name: 'NOELREPORTS', kind: 'telegram', tier: 'osint', channel: 'noel_reports', independent: true, weight: 0.75, maxItems: 8 },
@@ -100,7 +101,6 @@ const RISK_KEYWORDS = [
   'invasion', 'bomb', 'drone', 'weapon', 'sanctions', 'ceasefire', 'escalation',
   'killed', 'dead', 'destroyed', 'explosion', 'frontline', 'threat', 'air raid',
   'artillery', 'shelling', 'evacuation', 'intercepted', 'airstrike', 'casualties',
-  // Russian/Ukrainian-language feeds in the independent editorial tier.
   'война', 'ракет', 'удар', 'атак', 'взрыв', 'беспилот', 'дрон', 'обстрел',
   'погиб', 'ранен', 'эвакуац', 'ядерн', 'наступлен', 'боевые действия',
   'воздушная тревога', 'шахед', 'війна', 'вибух', 'обстріл', 'поранен',
@@ -109,7 +109,7 @@ const RISK_KEYWORDS = [
 interface PlaceDef {
   keys: string[];
   label: string;
-  coords: [number, number]; // [lat, lng]
+  coords: [number, number];
   confidence: number;
 }
 
@@ -135,34 +135,31 @@ const PLACES: PlaceDef[] = [
   { keys: ['aleppo', 'алеппо'], label: 'Aleppo, Syria', coords: [36.2021, 37.1343], confidence: 0.98 },
   { keys: ['tehran', 'тегеран'], label: 'Tehran, Iran', coords: [35.6892, 51.3890], confidence: 0.98 },
   { keys: ['isfahan', 'исфахан'], label: 'Isfahan, Iran', coords: [32.6546, 51.6680], confidence: 0.98 },
-  { keys: ['strait of hormuz', 'hormuz', 'ормуз'], label: 'Strait of Hormuz', coords: [26.5667, 56.2500], confidence: 0.92 },
+  { keys: ['strait of hormuz', 'hormuz', 'ормуз'], label: 'Strait of Hormuz', coords: [26.5667, 56.25], confidence: 0.92 },
   { keys: ['baghdad', 'багдад'], label: 'Baghdad, Iraq', coords: [33.3152, 44.3661], confidence: 0.98 },
   { keys: ['erbil', 'эрбиль'], label: 'Erbil, Iraq', coords: [36.1911, 44.0092], confidence: 0.98 },
-  { keys: ['sanaa', "sana'a", 'сана'], label: "Sana'a, Yemen", coords: [15.3694, 44.1910], confidence: 0.98 },
+  { keys: ['sanaa', "sana'a", 'сана'], label: "Sana'a, Yemen", coords: [15.3694, 44.191], confidence: 0.98 },
   { keys: ['aden', 'аден'], label: 'Aden, Yemen', coords: [12.7855, 45.0187], confidence: 0.98 },
   { keys: ['riyadh', 'эр-рияд'], label: 'Riyadh, Saudi Arabia', coords: [24.7136, 46.6753], confidence: 0.98 },
-  { keys: ['doha', 'доха'], label: 'Doha, Qatar', coords: [25.2854, 51.5310], confidence: 0.98 },
-  { keys: ['taipei', 'тайбэй'], label: 'Taipei, Taiwan', coords: [25.0330, 121.5654], confidence: 0.98 },
+  { keys: ['doha', 'доха'], label: 'Doha, Qatar', coords: [25.2854, 51.531], confidence: 0.98 },
+  { keys: ['taipei', 'тайбэй'], label: 'Taipei, Taiwan', coords: [25.033, 121.5654], confidence: 0.98 },
   { keys: ['beijing', 'пекин'], label: 'Beijing, China', coords: [39.9042, 116.4074], confidence: 0.98 },
   { keys: ['pyongyang', 'пхеньян'], label: 'Pyongyang, North Korea', coords: [39.0392, 125.7625], confidence: 0.98 },
-  { keys: ['seoul', 'сеул'], label: 'Seoul, South Korea', coords: [37.5665, 126.9780], confidence: 0.98 },
+  { keys: ['seoul', 'сеул'], label: 'Seoul, South Korea', coords: [37.5665, 126.978], confidence: 0.98 },
   { keys: ['tokyo', 'токио'], label: 'Tokyo, Japan', coords: [35.6762, 139.6503], confidence: 0.98 },
   { keys: ['washington dc', 'washington, d.c.', 'washington d.c.', 'вашингтон'], label: 'Washington, DC', coords: [38.9072, -77.0369], confidence: 0.98 },
-  { keys: ['new york city', 'new york', 'нью-йорк'], label: 'New York, US', coords: [40.7128, -74.0060], confidence: 0.96 },
+  { keys: ['new york city', 'new york', 'нью-йорк'], label: 'New York, US', coords: [40.7128, -74.006], confidence: 0.96 },
   { keys: ['london', 'лондон'], label: 'London, UK', coords: [51.5072, -0.1276], confidence: 0.98 },
   { keys: ['paris', 'париж'], label: 'Paris, France', coords: [48.8566, 2.3522], confidence: 0.98 },
-  { keys: ['berlin', 'берлин'], label: 'Berlin, Germany', coords: [52.5200, 13.4050], confidence: 0.98 },
+  { keys: ['berlin', 'берлин'], label: 'Berlin, Germany', coords: [52.52, 13.405], confidence: 0.98 },
   { keys: ['brussels', 'брюссель'], label: 'Brussels, Belgium', coords: [50.8503, 4.3517], confidence: 0.98 },
   { keys: ['warsaw', 'варшава'], label: 'Warsaw, Poland', coords: [52.2297, 21.0122], confidence: 0.98 },
   { keys: ['bucharest', 'бухарест'], label: 'Bucharest, Romania', coords: [44.4268, 26.1025], confidence: 0.98 },
-  { keys: ['black sea', 'черное море', 'чёрное море'], label: 'Black Sea', coords: [43.0, 34.0], confidence: 0.88 },
-  { keys: ['red sea', 'красное море'], label: 'Red Sea', coords: [20.0, 38.5], confidence: 0.88 },
+  { keys: ['black sea', 'черное море', 'чёрное море'], label: 'Black Sea', coords: [43, 34], confidence: 0.88 },
+  { keys: ['red sea', 'красное море'], label: 'Red Sea', coords: [20, 38.5], confidence: 0.88 },
 ];
 
-const parser = new Parser({
-  timeout: 6500,
-  headers: { 'User-Agent': 'OSIRIS/1.0 (+https://github.com/simplifaisoul/osiris)' },
-});
+const parser = new Parser({ timeout: 6500 });
 
 function decodeHtml(value: string): string {
   return value
@@ -180,8 +177,7 @@ function decodeHtml(value: string): string {
 
 function validDate(input?: string): string {
   const t = input ? Date.parse(input) : NaN;
-  if (!Number.isFinite(t)) return new Date().toISOString();
-  return new Date(t).toISOString();
+  return Number.isFinite(t) ? new Date(t).toISOString() : new Date().toISOString();
 }
 
 function titleFingerprint(title: string): Set<string> {
@@ -189,14 +185,8 @@ function titleFingerprint(title: string): Set<string> {
     'the', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'and', 'as', 'at', 'with', 'from', 'after', 'over',
     'что', 'как', 'это', 'для', 'при', 'после', 'через', 'уже', 'еще', 'ещё', 'его', 'ее', 'её', 'они', 'она',
   ]);
-  return new Set(
-    title
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 2 && !stop.has(word))
-      .slice(0, 24),
-  );
+  return new Set(title.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)
+    .filter(word => word.length > 2 && !stop.has(word)).slice(0, 24));
 }
 
 function similarity(a: string, b: string): number {
@@ -219,44 +209,38 @@ function scoreRisk(text: string): number {
 export function locateArticle(text: string): { coords: [number, number] | null; location?: string; confidence: number } {
   const lower = text.toLowerCase();
   for (const place of PLACES) {
-    if (place.keys.some(key => lower.includes(key))) {
-      return { coords: place.coords, location: place.label, confidence: place.confidence };
-    }
+    if (place.keys.some(key => lower.includes(key))) return { coords: place.coords, location: place.label, confidence: place.confidence };
   }
   return { coords: null, confidence: 0 };
 }
 
-function rawArticle(source: SourceDef, input: Omit<RawArticle, 'sourceId' | 'source' | 'sourceTier' | 'sourceWeight' | 'independent'>): RawArticle {
+function rawArticle(source: SourceDef, sourceWeight: number, input: Pick<RawArticle, 'title' | 'description' | 'link' | 'published'>): RawArticle {
   return {
     ...input,
     sourceId: source.id,
     source: source.name,
     sourceTier: source.tier,
-    sourceWeight: source.weight,
+    sourceWeight,
     independent: source.independent,
   };
 }
 
-function parseTelegram(html: string, source: SourceDef): RawArticle[] {
+function parseTelegram(html: string, source: SourceDef, sourceWeight: number): RawArticle[] {
   const blocks = html.split(/(?=<div class="tgme_widget_message_wrap js-widget_message_wrap)/i).slice(1);
   const items: RawArticle[] = [];
-
   for (const block of blocks) {
     const textMatch = block.match(/<div class="tgme_widget_message_text[^>]*>([\s\S]*?)<\/div>/i);
     if (!textMatch) continue;
     const description = decodeHtml(textMatch[1]);
     if (description.length < 20) continue;
-
     const dateMatch = block.match(/<a class="tgme_widget_message_date" href="([^"]+)"[^>]*>[\s\S]*?<time datetime="([^"]+)"/i);
     const dataPost = block.match(/data-post="([^"]+)"/i)?.[1];
     const link = dateMatch?.[1] || (dataPost ? `https://t.me/${dataPost}` : `https://t.me/${source.channel}`);
     const published = validDate(dateMatch?.[2]);
     const firstSentence = description.split(/\n|(?<=[.!?])\s+/)[0] || description;
     const title = firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}...` : firstSentence;
-
-    items.push(rawArticle(source, { title, description, link, published }));
+    items.push(rawArticle(source, sourceWeight, { title, description, link, published }));
   }
-
   return items.slice(-source.maxItems);
 }
 
@@ -274,22 +258,43 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Pro
   throw lastError instanceof Error ? lastError : new Error('fetch failed');
 }
 
+function healthPayload(source: SourceDef, ok: boolean, durationMs: number, items: number, error?: string, skipped = false): NewsSourceHealth {
+  const runtime = getSourceHealthSnapshot(source.id, source.weight);
+  return {
+    id: source.id,
+    name: source.name,
+    kind: source.kind,
+    tier: source.tier,
+    independent: source.independent,
+    weight: source.weight,
+    ...runtime,
+    ok,
+    skipped,
+    duration_ms: durationMs,
+    items,
+    error,
+  };
+}
+
 async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; health: NewsSourceHealth }> {
+  if (!shouldProbeSource(source.id)) {
+    return { items: [], health: healthPayload(source, false, 0, 0, 'adaptive cooldown', true) };
+  }
+
   const started = performance.now();
   try {
+    const initialWeight = getSourceHealthSnapshot(source.id, source.weight).effective_weight;
     let items: RawArticle[] = [];
+
     if (source.kind === 'rss' && source.url) {
-      // rss-parser uses its own HTTP client. Fetch explicitly so every upstream
-      // remains visible in OSIRIS server request instrumentation.
       const response = await fetchWithRetry(source.url, {
         signal: AbortSignal.timeout(6500),
-        headers: { 'User-Agent': 'OSIRIS/1.0 (+https://github.com/simplifaisoul/osiris)' },
+        headers: { 'User-Agent': 'OSIRIS/1.0 (+https://github.com/master7xx/osiris)' },
         cache: 'no-store',
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const xml = await response.text();
-      const feed = await parser.parseString(xml);
-      items = (feed.items || []).slice(0, source.maxItems).map(item => rawArticle(source, {
+      const feed = await parser.parseString(await response.text());
+      items = (feed.items || []).slice(0, source.maxItems).map(item => rawArticle(source, initialWeight, {
         title: decodeHtml(item.title || ''),
         description: decodeHtml(item.contentSnippet || item.content || item.summary || item.title || ''),
         link: item.link || '',
@@ -302,39 +307,19 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
         cache: 'no-store',
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      items = parseTelegram(await response.text(), source);
+      items = parseTelegram(await response.text(), source, initialWeight);
     }
 
-    return {
-      items,
-      health: {
-        id: source.id,
-        name: source.name,
-        kind: source.kind,
-        tier: source.tier,
-        independent: source.independent,
-        weight: source.weight,
-        ok: true,
-        duration_ms: Math.round(performance.now() - started),
-        items: items.length,
-      },
-    };
+    const durationMs = Math.round(performance.now() - started);
+    noteSourceSuccess(source.id, durationMs, items.length);
+    const recoveredWeight = getSourceHealthSnapshot(source.id, source.weight).effective_weight;
+    items = items.map(item => ({ ...item, sourceWeight: recoveredWeight }));
+    return { items, health: healthPayload(source, true, durationMs, items.length) };
   } catch (error) {
-    return {
-      items: [],
-      health: {
-        id: source.id,
-        name: source.name,
-        kind: source.kind,
-        tier: source.tier,
-        independent: source.independent,
-        weight: source.weight,
-        ok: false,
-        duration_ms: Math.round(performance.now() - started),
-        items: 0,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    };
+    const durationMs = Math.round(performance.now() - started);
+    const message = error instanceof Error ? error.message : String(error);
+    noteSourceFailure(source.id, message, durationMs);
+    return { items: [], health: healthPayload(source, false, durationMs, 0, message) };
   }
 }
 
@@ -344,16 +329,12 @@ function confidenceFor(articles: RawArticle[], locationConfidence: number) {
     const previous = bySource.get(article.sourceId);
     if (!previous || article.sourceWeight > previous.sourceWeight) bySource.set(article.sourceId, article);
   }
-
   const evidence = [...bySource.values()];
   const sourceCount = evidence.length;
   const independentSources = evidence.filter(item => item.independent).length;
   const editorialSources = evidence.filter(item => item.sourceTier === 'editorial').length;
   const evidenceWeight = evidence.reduce((sum, item) => sum + item.sourceWeight, 0);
   const corroboration = Math.max(0, sourceCount - 1);
-
-  // One strong editorial source lands around medium confidence. High confidence
-  // normally requires corroboration from another distinct source.
   const score = Math.min(1,
     0.26
     + Math.min(0.34, evidenceWeight * 0.15)
@@ -362,29 +343,19 @@ function confidenceFor(articles: RawArticle[], locationConfidence: number) {
     + Math.min(0.08, corroboration * 0.04)
     + locationConfidence * 0.08,
   );
-
-  return {
-    score,
-    sourceCount,
-    independentSources,
-    editorialSources,
-    evidenceWeight,
-  };
+  return { score, sourceCount, independentSources, editorialSources, evidenceWeight };
 }
 
 function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
   const maxAge = 24 * 60 * 60_000;
-  const candidates = raw
-    .map(article => ({ ...article, time: Date.parse(article.published) }))
+  const candidates = raw.map(article => ({ ...article, time: Date.parse(article.published) }))
     .filter(article => Number.isFinite(article.time) && article.time <= now + 5 * 60_000 && now - article.time <= maxAge)
     .sort((a, b) => b.time - a.time);
 
   const clusters: Array<{ primary: typeof candidates[number]; articles: typeof candidates }> = [];
   for (const article of candidates) {
-    const existing = clusters.find(cluster => {
-      const dt = Math.abs(cluster.primary.time - article.time);
-      return dt <= 6 * 60 * 60_000 && similarity(cluster.primary.title, article.title) >= 0.58;
-    });
+    const existing = clusters.find(cluster => Math.abs(cluster.primary.time - article.time) <= 6 * 60 * 60_000
+      && similarity(cluster.primary.title, article.title) >= 0.58);
     if (existing) existing.articles.push(article);
     else clusters.push({ primary: article, articles: [article] });
   }
@@ -406,7 +377,6 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
     const confidenceData = confidenceFor(cluster.articles, location.confidence);
     const confidence: NewsItem['confidence'] = confidenceData.score >= 0.78 ? 'high' : confidenceData.score >= 0.56 ? 'medium' : 'low';
     const ageMinutes = Math.max(0, Math.round((now - primary.time) / 60_000));
-
     return {
       id: `${primary.time.toString(36)}-${index}-${titleFingerprint(primary.title).values().next().value || 'news'}`,
       title: primary.title,
@@ -441,7 +411,9 @@ export async function aggregateNews() {
     news,
     health,
     source_count: SOURCES.length,
-    healthy_sources: health.filter(source => source.ok).length,
+    healthy_sources: health.filter(source => source.state === 'healthy').length,
+    degraded_sources: health.filter(source => source.state === 'degraded').length,
+    cooldown_sources: health.filter(source => source.state === 'cooldown').length,
     independent_sources: SOURCES.filter(source => source.independent).length,
     editorial_sources: SOURCES.filter(source => source.tier === 'editorial').length,
   };
@@ -452,7 +424,5 @@ export const __test = {
   clusterArticles,
   scoreRisk,
   confidenceFor,
-  sources: SOURCES.map(({ id, name, kind, tier, channel, independent, weight, maxItems }) => ({
-    id, name, kind, tier, channel, independent, weight, maxItems,
-  })),
+  sources: SOURCES.map(({ id, name, kind, tier, channel, independent, weight, maxItems }) => ({ id, name, kind, tier, channel, independent, weight, maxItems })),
 };

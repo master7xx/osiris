@@ -7,6 +7,7 @@ import {
   updateDebugEvent,
   type DebugUpstreamEvent,
 } from './debug-events';
+import { setNewsSourceHealth, type ClientNewsSourceHealth } from './news-health-client';
 
 declare global {
   interface Window {
@@ -69,6 +70,12 @@ export function installDebugFetch() {
         correlationId: resolvedCorrelationId,
         error: response.ok ? undefined : `HTTP ${response.status} ${response.statusText}`.trim(),
       });
+
+      if (endpoint === '/api/news' && response.ok) {
+        void response.clone().json().then((payload: { health?: ClientNewsSourceHealth[] }) => {
+          if (Array.isArray(payload.health)) setNewsSourceHealth(payload.health);
+        }).catch(() => {});
+      }
 
       try {
         const debugResponse = await originalFetch(
