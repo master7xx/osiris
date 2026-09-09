@@ -1,4 +1,5 @@
 import { stealthFetch } from '@/lib/stealthFetch';
+import { noteCctvProviderScope } from '@/lib/cctv-provider-health';
 import type { CctvCamera } from './types';
 
 const API = 'https://api.windy.com/webcams/api/v3/webcams';
@@ -147,35 +148,56 @@ async function fetchCell(cell: Cell, apiKey: string): Promise<CctvCamera[]> {
   return rows.map(mapWindyWebcam).filter((camera): camera is CctvCamera => camera !== null);
 }
 
-async function fetchMacro(label: string, cells: Cell[]): Promise<CctvCamera[]> {
+async function fetchMacro(scope: string, label: string, cells: Cell[]): Promise<CctvCamera[]> {
   const apiKey = process.env.WINDY_WEBCAMS_API_KEY?.trim();
-  if (!apiKey) return [];
+  if (!apiKey) {
+    noteCctvProviderScope('windy', scope, {
+      state: 'disabled',
+      enabled: false,
+      cameras: 0,
+    });
+    return [];
+  }
 
+  const started = Date.now();
   const results = await Promise.allSettled(cells.map(cell => fetchCell(cell, apiKey)));
   const cameras = new Map<string, CctvCamera>();
-  let failed = 0;
+  const failures: string[] = [];
 
   for (const result of results) {
     if (result.status === 'rejected') {
-      failed += 1;
+      failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
       continue;
     }
     for (const camera of result.value) cameras.set(camera.id, camera);
   }
 
-  if (failed) console.warn(`[OSIRIS] Windy ${label}: ${failed}/${cells.length} cells failed`);
+  const state = failures.length === 0
+    ? 'healthy'
+    : failures.length === cells.length
+      ? 'error'
+      : 'partial';
+  noteCctvProviderScope('windy', scope, {
+    state,
+    enabled: true,
+    cameras: cameras.size,
+    durationMs: Date.now() - started,
+    error: failures.length ? `${failures.length}/${cells.length} cells failed: ${failures[0]}` : undefined,
+  });
+
+  if (failures.length) console.warn(`[OSIRIS] Windy ${label}: ${failures.length}/${cells.length} cells failed`);
   console.log(`[OSIRIS] Windy ${label}: ${cameras.size} live webcams`);
   return [...cameras.values()];
 }
 
 export function fetchWindyEuropeCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('Europe', EUROPE);
+  return fetchMacro('europe', 'Europe', EUROPE);
 }
 
 export function fetchWindyEurasiaCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('Russia & Eurasia', EURASIA);
+  return fetchMacro('eurasia', 'Russia & Eurasia', EURASIA);
 }
 
 export function fetchWindyEastAsiaCameras(): Promise<CctvCamera[]> {
-  return fetchMacro('East Asia', EAST_ASIA);
+  return fetchMacro('eastasia', 'East Asia', EAST_ASIA);
 }
