@@ -3,6 +3,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import DebugOverlay from '@/components/DebugOverlay';
 import NewsHealthBadge from '@/components/NewsHealthBadge';
 import CctvProviderStatus from '@/components/CctvProviderStatus';
+import CctvCoverageStatus from '@/components/CctvCoverageStatus';
 import "./globals.css";
 
 const SITE_URL = "https://osirisai.live";
@@ -202,6 +203,7 @@ export default function RootLayout({
         </ErrorBoundary>
         <NewsHealthBadge />
         <CctvProviderStatus />
+        <CctvCoverageStatus />
         <DebugOverlay />
       </body>
     </html>

@@ -9,6 +9,7 @@ import {
 } from './debug-events';
 import { setNewsSourceHealth, type ClientNewsSourceHealth } from './news-health-client';
 import { setCctvProviderHealth, type ClientCctvProviderHealth } from './cctv-health-client';
+import { setCctvCoverage, type ClientCctvCoverageSnapshot } from './cctv-coverage-client';
 
 declare global {
   interface Window {
@@ -79,8 +80,15 @@ export function installDebugFetch() {
       }
 
       if (endpoint === '/api/cctv' && response.ok) {
-        void response.clone().json().then((payload: { health?: ClientCctvProviderHealth[] }) => {
+        void response.clone().json().then((payload: {
+          health?: ClientCctvProviderHealth[];
+          coverage?: ClientCctvCoverageSnapshot;
+          global_coverage?: ClientCctvCoverageSnapshot;
+        }) => {
           if (Array.isArray(payload.health)) setCctvProviderHealth(payload.health);
+          if (payload.coverage || payload.global_coverage) {
+            setCctvCoverage(payload.coverage, payload.global_coverage);
+          }
         }).catch(() => {});
       }
 
