@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cctvMacroRegionForViewport } from './region-routing';
+import { cctvMacroRegionForViewport, routeCctvViewportUrl } from './region-routing';
 
 describe('cctvMacroRegionForViewport', () => {
   it('routes European Russia, Siberia and the Russian Far East to westasia', () => {
@@ -18,5 +18,28 @@ describe('cctvMacroRegionForViewport', () => {
     expect(cctvMacroRegionForViewport(Number.NaN, 90)).toBeNull();
     expect(cctvMacroRegionForViewport(85, 90)).toBeNull();
     expect(cctvMacroRegionForViewport(50, -20)).toBeNull();
+  });
+});
+
+describe('routeCctvViewportUrl', () => {
+  it('adds westasia only to matching coordinate-driven requests', () => {
+    const routed = new URL(routeCctvViewportUrl(
+      'http://localhost/api/cctv?lat=55.7558&lng=37.6173&radius=10',
+    ));
+
+    expect(routed.searchParams.get('region')).toBe('westasia');
+    expect(routed.searchParams.get('radius')).toBe('10');
+  });
+
+  it('preserves an explicit region exactly', () => {
+    const url = 'http://localhost/api/cctv?region=japan&lat=55.7558&lng=37.6173';
+    expect(routeCctvViewportUrl(url)).toBe(url);
+  });
+
+  it('does not rewrite dedicated or non-macro coordinate requests', () => {
+    const tokyo = 'http://localhost/api/cctv?lat=35.6762&lng=139.6503';
+    const outside = 'http://localhost/api/cctv?lat=50&lng=-20';
+    expect(routeCctvViewportUrl(tokyo)).toBe(tokyo);
+    expect(routeCctvViewportUrl(outside)).toBe(outside);
   });
 });
