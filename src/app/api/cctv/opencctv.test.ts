@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mapRecord, streamKind, sample, type OpenCctvRecord } from './opencctv';
+import {
+  mapRecord,
+  streamKind,
+  sample,
+  sampleSpatial,
+  type MarkerCandidate,
+  type OpenCctvRecord,
+} from './opencctv';
 
 /** A representative row from /api/cameras/batch. */
 const sampleRow: OpenCctvRecord = {
@@ -53,14 +60,12 @@ describe('mapRecord', () => {
   });
 
   it('drops a still whose URL a cache-buster would break', () => {
-    // The tile appends ?_t= on every refresh, so this one would break on sight.
     expect(mapRecord({
       ...sampleRow, feed_type: 'image', cache_buster_breaks_url: true,
     })).toBeNull();
   });
 
   it('keeps a stream even when a cache-buster would break it', () => {
-    // Streams are never re-pointed, so the flag does not apply to them.
     expect(mapRecord({ ...sampleRow, cache_buster_breaks_url: true })).not.toBeNull();
   });
 
@@ -92,9 +97,47 @@ describe('sample', () => {
   });
 
   it('spreads across the list rather than taking a prefix', () => {
-    // The index is grouped by operator, so a prefix would be one city.
     const picked = sample(Array.from({ length: 100 }, (_, i) => i), 10);
     expect(picked[0]).toBe(0);
     expect(picked[picked.length - 1]).toBeGreaterThan(80);
+  });
+});
+
+describe('sampleSpatial', () => {
+  it('returns everything below the cap', () => {
+    const rows: MarkerCandidate[] = [
+      { id: 'a', lat: 55.75, lng: 37.62 },
+      { id: 'b', lat: 35.68, lng: 139.76 },
+    ];
+    expect(sampleSpatial(rows, 10)).toEqual(rows);
+  });
+
+  it('takes from sparse cells before repeatedly sampling a dense city', () => {
+    const dense = Array.from({ length: 90 }, (_, i): MarkerCandidate => ({
+      id: `moscow-${i}`,
+      lat: 55.75 + i * 0.0001,
+      lng: 37.62 + i * 0.0001,
+    }));
+    const rows: MarkerCandidate[] = [
+      ...dense,
+      { id: 'berlin', lat: 52.52, lng: 13.405 },
+      { id: 'tokyo', lat: 35.676, lng: 139.65 },
+    ];
+
+    const picked = sampleSpatial(rows, 3, 3);
+    expect(picked).toHaveLength(3);
+    expect(picked.map(row => row.id)).toContain('berlin');
+    expect(picked.map(row => row.id)).toContain('tokyo');
+    expect(picked.filter(row => row.id.startsWith('moscow-'))).toHaveLength(1);
+  });
+
+  it('never exceeds the requested cap', () => {
+    const rows = Array.from({ length: 500 }, (_, i): MarkerCandidate => ({
+      id: `cam-${i}`,
+      lat: -60 + (i % 120),
+      lng: -170 + (i % 340),
+    }));
+    expect(sampleSpatial(rows, 75, 4)).toHaveLength(75);
+    expect(sampleSpatial(rows, 0, 4)).toEqual([]);
   });
 });
