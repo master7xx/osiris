@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import ErrorBoundary from '@/components/ErrorBoundary';
 import DebugOverlay from '@/components/DebugOverlay';
+import NewsHealthBadge from '@/components/NewsHealthBadge';
 import "./globals.css";
 
 const SITE_URL = "https://osirisai.live";
@@ -34,12 +35,12 @@ export const metadata: Metadata = {
     "network reconnaissance", "recon tools", "penetration testing tools",
     "cybersecurity tools", "infosec tools", "security scanner",
     "linux OSINT tools", "kali linux tools online", "OSINT browser tools",
-    
+
     // Intelligence Platform
     "OSINT", "open source intelligence", "intelligence platform", "global intelligence",
     "geospatial intelligence", "GEOINT", "SIGINT", "real-time tracking",
     "palantir alternative", "open source palantir", "intelligence dashboard",
-    
+
     // Tracking & Data
     "flight tracker", "aircraft tracking", "ADS-B tracker", "live flight radar",
     "satellite tracking", "ISS tracker", "space station tracker",
@@ -51,7 +52,7 @@ export const metadata: Metadata = {
     "cyber threats dashboard", "CVE tracker",
     "space weather", "solar storm", "GPS jamming",
     "defense stocks", "commodities tracker",
-    
+
     // Brand
     "osiris", "osirisai", "osirisai.live",
   ],
@@ -128,7 +129,6 @@ export const metadata: Metadata = {
   },
 };
 
-// JSON-LD Structured Data
 const jsonLd = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
@@ -190,18 +190,16 @@ export default function RootLayout({
         <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="canonical" href={SITE_URL} />
-        
-        {/* JSON-LD Structured Data */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
-
       </head>
       <body className="antialiased">
         <ErrorBoundary name="OSIRIS Core">
           {children}
         </ErrorBoundary>
+        <NewsHealthBadge />
         <DebugOverlay />
       </body>
     </html>
