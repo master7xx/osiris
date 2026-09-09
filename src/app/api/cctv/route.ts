@@ -39,6 +39,7 @@ import { fetchGeorgiaCameras } from './georgia';
 import { fetchNorthCarolinaCameras } from './northcarolina';
 import { fetchArizonaCameras } from './arizona';
 import { fetchMarylandCameras } from './maryland';
+import { fetchIowaCameras } from './iowa';
 import { fetchEastAsiaCameras, fetchSeAsiaCameras, fetchWestAsiaCameras } from './opencctv';
 import {
   fetchLatamLiveCameras,
@@ -473,6 +474,7 @@ const RAW_REGION_FETCHERS: Record<string, RegionFetcher> = {
   'us-west': async () => { const [w, c] = await Promise.all([fetchWSDOTCameras(), fetchCaltransCameras()]); return [...w, ...c]; },
   'us-east': fetchUSEastCameras,
   'maryland': fetchMarylandCameras,
+  'iowa': fetchIowaCameras,
   'us-central': fetchUSCentralCameras,
   'canada': fetchCanadaCameras,
   'europe': fetchEuropeCameras,
@@ -575,6 +577,8 @@ function getRegionsForBounds(lat: number, lng: number, radius: number): string[]
   if (lat > 34.9 && lat < 42.1 && lng > -120.1 && lng < -113.9) regions.push('nevada');
   // US-Central
   if (lat > 24 && lat < 49 && lng > -105 && lng < -80) regions.push('us-central');
+  // Iowa DOT — official open-data ArcGIS index, isolated from the broad us-central source
+  if (lat > 40.3 && lat < 43.6 && lng > -96.7 && lng < -90.0) regions.push('iowa');
   // Michigan (MDOT) — explicit, since us-central only covers Illinois
   if (lat > 41.6 && lat < 48.3 && lng > -90.5 && lng < -82.1) regions.push('michigan');
   // Indiana (INDOT TrafficWise) — explicit, since us-central only covers Illinois
