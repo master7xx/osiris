@@ -18,6 +18,15 @@ describe('adaptive news source health', () => {
     expect(health.success_rate).toBe(1);
   });
 
+  it('keeps latency diagnostic-only even on a very slow successful connection', () => {
+    noteSourceSuccess('source-a', 25_000, 6, 1_000);
+    noteSourceSuccess('source-a', 18_000, 4, 2_000);
+    const health = getSourceHealthSnapshot('source-a', 1, 2_001);
+    expect(health.avg_latency_ms).toBeGreaterThan(10_000);
+    expect(health.state).toBe('healthy');
+    expect(health.effective_weight).toBe(1);
+  });
+
   it('penalizes failures and enters cooldown after repeated failures', () => {
     noteSourceFailure('source-a', 'timeout', 6500, 1_000);
     expect(sourceHealthMultiplier('source-a', 1_001)).toBeLessThan(1);
