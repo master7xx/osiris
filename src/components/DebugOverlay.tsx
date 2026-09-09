@@ -9,6 +9,7 @@ import {
   type DebugRequestEvent,
 } from '@/lib/debug-events';
 import { installDebugFetch } from '@/lib/debug-fetch';
+import RegionDossierStatus from '@/components/RegionDossierStatus';
 
 type DebugMode = 'all' | 'errors' | 'slow' | 'news';
 const BLUE = '#0788FF';
@@ -119,6 +120,7 @@ export default function DebugOverlay() {
 
   return (
     <>
+      <RegionDossierStatus />
       <style jsx global>{`
         @keyframes osiris-debug-run { 0%,100% { box-shadow: 0 0 18px rgba(7,136,255,.6), 0 0 36px rgba(7,136,255,.25); } 50% { box-shadow: 0 0 28px rgba(43,217,255,.9), 0 0 52px rgba(7,136,255,.4); } }
       `}</style>
