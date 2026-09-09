@@ -101,12 +101,15 @@ export function noteCctvProviderScope(
   const enabled = input.enabled ?? providerEnabledByConfig(id);
   const cameras = Math.max(0, Math.round(input.cameras ?? 0));
   const previous = provider.scopes[scope];
+  const durationMs = typeof input.durationMs === 'number' && Number.isFinite(input.durationMs)
+    ? Math.max(0, input.durationMs)
+    : previous?.durationMs;
 
   provider.scopes[scope] = {
     state: input.state,
     enabled,
     cameras,
-    durationMs: Number.isFinite(input.durationMs) ? Math.max(0, input.durationMs) : previous?.durationMs,
+    durationMs,
     lastAttemptAt: now,
     lastSuccessAt: input.state === 'healthy' || input.state === 'partial'
       ? now
