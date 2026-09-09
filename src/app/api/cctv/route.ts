@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   if (!response.ok) return response;
 
   try {
-    const payload = await response.json() as {
+    const payload = await response.clone().json() as {
       cameras?: Array<{ id?: string; source?: string }>;
       [key: string]: unknown;
     };
