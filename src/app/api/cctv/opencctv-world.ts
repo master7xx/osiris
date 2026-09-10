@@ -22,28 +22,42 @@ interface Bounds {
 }
 
 interface MacroSpec {
-  bounds: Bounds;
+  areas: Bounds[];
   cap: number;
   cellDegrees: number;
 }
 
 export const WORLD_MACROS = {
   latam: {
-    bounds: { minLat: -56, maxLat: 33, minLng: -119, maxLng: -34 },
+    areas: [{ minLat: -56, maxLat: 33, minLng: -119, maxLng: -34 }],
     cap: 500,
     cellDegrees: 4,
   },
   africa: {
-    bounds: { minLat: -35, maxLat: 36, minLng: -26, maxLng: 57 },
+    areas: [{ minLat: -35, maxLat: 36, minLng: -26, maxLng: 57 }],
     cap: 500,
     cellDegrees: 4,
   },
+  /* Australia, PNG and the Pacific on both sides of the antimeridian. Easter
+     Island is already inside the Latin America macro, so the eastern box can
+     stop at 120W without creating another overlap. */
+  oceania: {
+    areas: [
+      { minLat: -50, maxLat: 10, minLng: 110, maxLng: 180 },
+      { minLat: -30, maxLat: 30, minLng: -180, maxLng: -120 },
+    ],
+    cap: 500,
+    cellDegrees: 5,
+  },
 } satisfies Record<string, MacroSpec>;
 
-export function insideWorldMacro(scope: keyof typeof WORLD_MACROS, lat: number, lng: number): boolean {
-  const b = WORLD_MACROS[scope].bounds;
+function inside(bounds: Bounds, lat: number, lng: number): boolean {
   return Number.isFinite(lat) && Number.isFinite(lng) &&
-    lat > b.minLat && lat < b.maxLat && lng > b.minLng && lng < b.maxLng;
+    lat > bounds.minLat && lat < bounds.maxLat && lng > bounds.minLng && lng < bounds.maxLng;
+}
+
+export function insideWorldMacro(scope: keyof typeof WORLD_MACROS, lat: number, lng: number): boolean {
+  return WORLD_MACROS[scope].areas.some(bounds => inside(bounds, lat, lng));
 }
 
 /* Use the exact same cache key as opencctv.ts. If an Asia/Europe loader already
@@ -154,4 +168,9 @@ export const fetchLatamOpenCctvCameras = cachedSource(
 export const fetchAfricaOpenCctvCameras = cachedSource(
   'africa-occ',
   worldLoader('africa', 'Africa'),
+);
+
+export const fetchOceaniaOpenCctvCameras = cachedSource(
+  'oceania-occ',
+  worldLoader('oceania', 'Oceania & Pacific'),
 );
