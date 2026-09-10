@@ -1,18 +1,26 @@
-export type CctvMacroRegion = 'westasia';
+export type CctvMacroRegion = 'westasia' | 'australia';
 
 /**
- * OpenCCTV's `westasia` macro source is a union of the original West/Central
- * Asia box and the northern Eurasian belt. The old route selector still used
- * the original, smaller bounds, so Moscow, Siberia and the Russian Far East
- * could fall through to unrelated UK/US fallback sources while panning.
- *
- * Keep the override intentionally narrow: Japan and the lower East-Asia box
- * retain their dedicated sources, while the belt from European Russia through
- * Siberia is routed to the macro source that actually contains those cameras.
+ * Macro overrides repair gaps in the legacy region selector without changing
+ * its large registry. Keep them deliberately narrow so dedicated national
+ * sources continue to win where they exist.
  */
 export function cctvMacroRegionForViewport(lat: number, lng: number): CctvMacroRegion | null {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  // European Russia through Siberia and the Russian Far East.
   if (lat > 46 && lat < 82 && lng > 30 && lng < 180) return 'westasia';
+
+  // Preserve the dedicated NZTA New Zealand route.
+  const inNewZealand = lat > -47.5 && lat < -34 && lng > 166 && lng < 179;
+  if (inNewZealand) return null;
+
+  // Australia plus Melanesia/Micronesia and the Pacific across the dateline.
+  const inAustralia = lat > -45 && lat < -10 && lng > 110 && lng < 155;
+  const inWestPacific = lat > -30 && lat < 10 && lng > 130 && lng < 180;
+  const inEastPacific = lat > -30 && lat < 30 && lng > -180 && lng < -120;
+  if (inAustralia || inWestPacific || inEastPacific) return 'australia';
+
   return null;
 }
 
