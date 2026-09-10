@@ -7,6 +7,7 @@ import {
 } from '@/lib/cctv-coverage';
 import { fallbackRequestUrl, planCctvFallback, type CctvFallbackPlan } from './adaptive-fallback';
 import { getCctvWithMacroRouting } from './route-proxy';
+import { fetchStrategicCctvForRequest } from './strategic-enrichment';
 
 export const maxDuration = 60;
 
@@ -32,6 +33,25 @@ async function readPayload(response: Response): Promise<CctvPayload | null> {
   } catch {
     return null;
   }
+}
+
+function mergeStrategicCameras(payload: CctvPayload, strategic: CctvCoverageCamera[]): CctvPayload {
+  if (strategic.length === 0) return payload;
+
+  const base = Array.isArray(payload.cameras) ? payload.cameras : [];
+  const seen = new Map<string, CctvCoverageCamera>();
+  base.forEach((camera, index) => seen.set(camera.id || `base-${index}`, camera));
+
+  const sources = { ...(payload.sources ?? {}) };
+  for (const camera of strategic) {
+    const key = camera.id || `strategic-${seen.size}`;
+    if (seen.has(key)) continue;
+    seen.set(key, camera);
+    if (camera.source) sources[camera.source] = (sources[camera.source] ?? 0) + 1;
+  }
+
+  const cameras = [...seen.values()];
+  return { ...payload, cameras, sources, total: cameras.length };
 }
 
 async function tryAdaptiveFallback(
@@ -78,6 +98,9 @@ export async function GET(request: Request) {
     if (!payload) payload = await readPayload(response);
     if (!payload) return response;
 
+    const strategic = await fetchStrategicCctvForRequest(request.url);
+    payload = mergeStrategicCameras(payload, strategic);
+
     const cameras = Array.isArray(payload.cameras) ? payload.cameras : [];
     noteCctvProviderResponse(cameras);
 
@@ -103,7 +126,7 @@ export async function GET(request: Request) {
       headers,
     });
   } catch {
-    // Diagnostics and fallback metadata must never turn a working CCTV response into a failure.
+    // Diagnostics and optional strategic enrichment must never turn a working CCTV response into a failure.
     return response;
   }
 }
