@@ -1,5 +1,6 @@
 import type { CctvCamera } from './types';
 import { fetchEuropeOpenCctvCameras } from './opencctv';
+import { fetchAfricaOpenCctvCameras, fetchLatamOpenCctvCameras } from './opencctv-world';
 import { fetchWindyEuropeCameras, fetchWindyEurasiaCameras } from './windy';
 import {
   LATAM_SKYLINE_CAMERAS,
@@ -10,35 +11,25 @@ import {
 /**
  * OSIRIS — public live webcams outside Asia.
  *
- * Latin America and Africa use the curated generated catalogue. Europe combines
- * that curated layer with a spatially sampled OpenCCTV macro layer; national
- * traffic-authority adapters remain separate and take care of their own regions.
- * When WINDY_WEBCAMS_API_KEY is configured, Windy's supported live-player
- * embeds add another optional global-discovery layer without replacing any
- * keyless source.
+ * Latin America, Africa and Europe combine a bundled curated layer with a
+ * spatially sampled OpenCCTV macro layer. National traffic-authority adapters
+ * remain separate and authoritative where available. When
+ * WINDY_WEBCAMS_API_KEY is configured, Windy's supported live-player embeds
+ * add another optional discovery layer without replacing any keyless source.
  */
-
-export async function fetchLatamLiveCameras(): Promise<CctvCamera[]> {
-  return LATAM_SKYLINE_CAMERAS;
-}
-
-export async function fetchAfricaLiveCameras(): Promise<CctvCamera[]> {
-  return AFRICA_SKYLINE_CAMERAS;
-}
 
 /**
- * OpenCCTV is enrichment, not a prerequisite for Europe.
+ * OpenCCTV is enrichment, never a prerequisite for a macro region.
  *
- * Its shared worldwide marker index is large and can take longer on a degraded
- * connection. Return the already-bundled European catalogue after seven
- * seconds rather than letting optional enrichment consume the route's whole
- * 12-second region budget. The abandoned fetch continues inside sourceCache,
- * so a later refresh can pick up the warmed global sample.
+ * Its worldwide marker index is large and can take longer on a degraded
+ * connection. Return the bundled catalogue after seven seconds rather than
+ * letting optional enrichment consume the route's whole 12-second budget.
+ * The abandoned fetch continues inside sourceCache, warming the next request.
  */
-async function optionalEuropeOpenCctv(): Promise<CctvCamera[]> {
+async function optionalOpenCctv(fetcher: () => Promise<CctvCamera[]>): Promise<CctvCamera[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
-    fetchEuropeOpenCctvCameras().finally(() => {
+    fetcher().finally(() => {
       if (timer) clearTimeout(timer);
     }),
     new Promise<CctvCamera[]>(resolve => {
@@ -47,20 +38,32 @@ async function optionalEuropeOpenCctv(): Promise<CctvCamera[]> {
   ]);
 }
 
+function mergeById(...groups: CctvCamera[][]): CctvCamera[] {
+  const seen = new Map<string, CctvCamera>();
+  for (const group of groups) {
+    for (const camera of group) seen.set(camera.id, camera);
+  }
+  return [...seen.values()];
+}
+
+export async function fetchLatamLiveCameras(): Promise<CctvCamera[]> {
+  const openCctv = await optionalOpenCctv(fetchLatamOpenCctvCameras);
+  return mergeById(LATAM_SKYLINE_CAMERAS, openCctv);
+}
+
+export async function fetchAfricaLiveCameras(): Promise<CctvCamera[]> {
+  const openCctv = await optionalOpenCctv(fetchAfricaOpenCctvCameras);
+  return mergeById(AFRICA_SKYLINE_CAMERAS, openCctv);
+}
+
 export async function fetchEuropeLiveCameras(): Promise<CctvCamera[]> {
   const [openCctv, windyEurope, windyEurasia] = await Promise.all([
-    optionalEuropeOpenCctv(),
+    optionalOpenCctv(fetchEuropeOpenCctvCameras),
     fetchWindyEuropeCameras(),
     fetchWindyEurasiaCameras(),
   ]);
 
-  const seen = new Map<string, CctvCamera>();
-  for (const camera of EUROPE_SKYLINE_CAMERAS) seen.set(camera.id, camera);
-  for (const camera of openCctv) seen.set(camera.id, camera);
-  for (const camera of windyEurope) seen.set(camera.id, camera);
   /* Eurasia is included here so a global/region=all request gains Russia and
-     Siberia coverage even before the viewport router grows its own northern
-     Eurasia region. IDs are globally stable and deduplicated by webcam id. */
-  for (const camera of windyEurasia) seen.set(camera.id, camera);
-  return [...seen.values()];
+     Siberia coverage as well as the dedicated westasia viewport path. */
+  return mergeById(EUROPE_SKYLINE_CAMERAS, openCctv, windyEurope, windyEurasia);
 }
