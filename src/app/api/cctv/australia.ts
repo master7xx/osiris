@@ -1,6 +1,7 @@
 import type { CctvCamera } from './types';
 import { stealthFetch } from '@/lib/stealthFetch';
 import { fetchOceaniaOpenCctvCameras } from './opencctv-world';
+import { fetchWindyOceaniaCameras } from './windy';
 
 async function fetchOfficialAustraliaCameras(): Promise<CctvCamera[]> {
   try {
@@ -34,7 +35,8 @@ async function fetchOfficialAustraliaCameras(): Promise<CctvCamera[]> {
 /**
  * The internal `australia` region also acts as the broad Oceania/Pacific macro
  * fallback. Official Live Traffic cameras remain the preferred Australian
- * layer; OpenCCTV fills PNG and Pacific-island gaps and is strictly optional.
+ * layer; OpenCCTV fills keyless regional gaps and Windy adds optional source
+ * diversity when WINDY_WEBCAMS_API_KEY is configured.
  */
 export async function fetchAustraliaCameras(): Promise<CctvCamera[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -47,13 +49,15 @@ export async function fetchAustraliaCameras(): Promise<CctvCamera[]> {
     }),
   ]);
 
-  const [official, openCctv] = await Promise.all([
+  const [official, openCctv, windy] = await Promise.all([
     fetchOfficialAustraliaCameras(),
     optionalOpenCctv,
+    fetchWindyOceaniaCameras(),
   ]);
 
   const seen = new Map<string, CctvCamera>();
   for (const camera of official) seen.set(camera.id, camera);
   for (const camera of openCctv) seen.set(camera.id, camera);
+  for (const camera of windy) seen.set(camera.id, camera);
   return [...seen.values()];
 }
