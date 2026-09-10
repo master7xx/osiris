@@ -65,6 +65,36 @@ const EAST_ASIA: Cell[] = [
   { north: 25, east: 150, south: 5, west: 120 },
 ];
 
+export const WINDY_WORLD_CELLS = {
+  latam: [
+    { north: 33, east: -75, south: 0, west: -119 },
+    { north: 33, east: -34, south: 0, west: -75 },
+    { north: 0, east: -75, south: -56, west: -119 },
+    { north: 0, east: -34, south: -56, west: -75 },
+  ],
+  africa: [
+    { north: 36, east: 15, south: 0, west: -26 },
+    { north: 36, east: 57, south: 0, west: 15 },
+    { north: 0, east: 15, south: -35, west: -26 },
+    { north: 0, east: 57, south: -35, west: 15 },
+  ],
+  oceania: [
+    { north: 10, east: 150, south: -50, west: 110 },
+    { north: 10, east: 180, south: -50, west: 150 },
+    { north: 30, east: -150, south: -30, west: -180 },
+    { north: 30, east: -120, south: -30, west: -150 },
+  ],
+} satisfies Record<string, Cell[]>;
+
+export type WindyWorldScope = keyof typeof WINDY_WORLD_CELLS;
+
+export function windyWorldMacroContains(scope: WindyWorldScope, lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return WINDY_WORLD_CELLS[scope].some(cell =>
+    lat > cell.south && lat < cell.north && lng > cell.west && lng < cell.east,
+  );
+}
+
 function safeHttps(value?: string | null): string | undefined {
   if (!value) return undefined;
   try {
@@ -207,4 +237,19 @@ export const fetchWindyEurasiaCameras = cachedSource(
 export const fetchWindyEastAsiaCameras = cachedSource(
   'windy:eastasia',
   () => fetchMacro('eastasia', 'East Asia', EAST_ASIA),
+);
+
+export const fetchWindyLatamCameras = cachedSource(
+  'windy:latam',
+  () => fetchMacro('latam', 'Latin America', WINDY_WORLD_CELLS.latam),
+);
+
+export const fetchWindyAfricaCameras = cachedSource(
+  'windy:africa',
+  () => fetchMacro('africa', 'Africa', WINDY_WORLD_CELLS.africa),
+);
+
+export const fetchWindyOceaniaCameras = cachedSource(
+  'windy:oceania',
+  () => fetchMacro('oceania', 'Oceania & Pacific', WINDY_WORLD_CELLS.oceania),
 );

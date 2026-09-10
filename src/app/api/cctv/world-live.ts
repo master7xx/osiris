@@ -1,7 +1,12 @@
 import type { CctvCamera } from './types';
 import { fetchEuropeOpenCctvCameras } from './opencctv';
 import { fetchAfricaOpenCctvCameras, fetchLatamOpenCctvCameras } from './opencctv-world';
-import { fetchWindyEuropeCameras, fetchWindyEurasiaCameras } from './windy';
+import {
+  fetchWindyAfricaCameras,
+  fetchWindyEuropeCameras,
+  fetchWindyEurasiaCameras,
+  fetchWindyLatamCameras,
+} from './windy';
 import {
   LATAM_SKYLINE_CAMERAS,
   AFRICA_SKYLINE_CAMERAS,
@@ -15,7 +20,7 @@ import {
  * spatially sampled OpenCCTV macro layer. National traffic-authority adapters
  * remain separate and authoritative where available. When
  * WINDY_WEBCAMS_API_KEY is configured, Windy's supported live-player embeds
- * add another optional discovery layer without replacing any keyless source.
+ * add a second global discovery layer without replacing any keyless source.
  */
 
 /**
@@ -47,13 +52,19 @@ function mergeById(...groups: CctvCamera[][]): CctvCamera[] {
 }
 
 export async function fetchLatamLiveCameras(): Promise<CctvCamera[]> {
-  const openCctv = await optionalOpenCctv(fetchLatamOpenCctvCameras);
-  return mergeById(LATAM_SKYLINE_CAMERAS, openCctv);
+  const [openCctv, windy] = await Promise.all([
+    optionalOpenCctv(fetchLatamOpenCctvCameras),
+    fetchWindyLatamCameras(),
+  ]);
+  return mergeById(LATAM_SKYLINE_CAMERAS, openCctv, windy);
 }
 
 export async function fetchAfricaLiveCameras(): Promise<CctvCamera[]> {
-  const openCctv = await optionalOpenCctv(fetchAfricaOpenCctvCameras);
-  return mergeById(AFRICA_SKYLINE_CAMERAS, openCctv);
+  const [openCctv, windy] = await Promise.all([
+    optionalOpenCctv(fetchAfricaOpenCctvCameras),
+    fetchWindyAfricaCameras(),
+  ]);
+  return mergeById(AFRICA_SKYLINE_CAMERAS, openCctv, windy);
 }
 
 export async function fetchEuropeLiveCameras(): Promise<CctvCamera[]> {
