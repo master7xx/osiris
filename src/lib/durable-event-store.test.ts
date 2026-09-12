@@ -37,12 +37,12 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
   it('persists cancellation and supersession metadata as a material revision', async () => {
     await store.commitBatch(randomUUID(), [write()]);
     const metadata = { withdrawn: true, supersedes: ['https://api.weather.gov/alerts/old'] };
-    await store.commitBatch(randomUUID(), [write(metadata)]);
+    await store.commitBatch(randomUUID(), [write(metadata, '1')]);
     const reader = new DurableEventReader(pool);
     const snapshot = await reader.bootstrap();
     expect(snapshot.events[0].payload).toMatchObject(metadata);
     expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('2');
-    await store.commitBatch(randomUUID(), [write(metadata)]);
+    await store.commitBatch(randomUUID(), [write(metadata, '2')]);
     expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('2');
   });
   it('recovers identity through a new connection and does not revise freshness changes', async () => {
