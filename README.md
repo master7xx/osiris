@@ -575,3 +575,23 @@ so map labels do not bleed through. The space-weather heading, measurement and
 flare text use readable, wrapping typography. Partial/unavailable responses
 identify the missing products. A missing Kp remains a visible neutral Unknown,
 not a dim severity color. This block appears after the space-weather response loads.
+
+
+### Geolocation and news retry behavior
+
+`/api/geo` normalizes IPv4-mapped IPv6, including Windows loopback
+`::ffff:127.0.0.1`, and omits local/private or malformed inputs from provider
+URLs. Only 172.16–172.31 are treated as private in the 172.x range. Responses
+include `lookup_scope`: `client-ip` for a supplied public address, or
+`server-egress` when providers auto-detect the server's external address.
+The latter is not a claim about the browser user's physical location. Deployments
+must configure trusted proxy headers correctly. Valid zero latitude/longitude
+is accepted; invalid coordinates fall through to the next provider. Providers
+can still fail, in which case the endpoint returns 502.
+
+RSS/Telegram fetches use at most two attempts, each with its own 6.5-second
+timeout. A timed-out signal is never reused. Retried HTTP 5xx response bodies
+are released; HTTP 4xx is not retried. Two timeout failures can therefore take
+about 13 seconds, plus processing/scheduling overhead. This fixes ineffective
+retry attempts; it does not eliminate external network outages or guarantee
+that all event sources are healthy.
