@@ -22,9 +22,11 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       <label><input type="checkbox" checked={feed.enabled} onChange={e => feed.setEnabled(e.target.checked)} /> Show markers ({feed.mappable.length})</label>
     </div>
     <div className="world-events-status" role="status">
-      {feed.fromCache ? 'CACHED DATA · ' : ''}{feed.loading ? 'Refreshing… ' : ''}{feed.stale ? 'STALE · ' : ''}{feed.partial ? 'PARTIAL SOURCES · ' : ''}
+      <div>{feed.filters.category || 'All categories'} · {feed.events.length}/{feed.matching} events · {feed.sources.length} sources in view</div>
+      <details><summary>Sources in this view ({feed.sources.length})</summary><div className="world-event-sources">{feed.sources.map(source => <SourceBadge key={source.source_id} source={source.source} evidence={source} />)}{!feed.sources.length && <span>No sources in this view.</span>}</div></details>
+      {feed.fromCache ? 'CACHED DATA · ' : ''}{feed.loading ? 'Refreshing… ' : ''}{feed.stale ? 'STALE · ' : ''}{feed.partial ? 'PARTIAL SOURCES (GLOBAL) · ' : ''}
       {feed.error && `${feed.snapshot ? 'Refresh failed; keeping previous snapshot' : 'Unable to load events'}: ${feed.error} `}
-      {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} sources · Snapshot {new Date(feed.snapshot.generated_at).toLocaleTimeString([], { timeZone: 'UTC', hour12: false })} UTC</span>}
+      {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} global sources · Snapshot {new Date(feed.snapshot.generated_at).toLocaleTimeString([], { timeZone: 'UTC', hour12: false })} UTC</span>}
       <button type="button" disabled={feed.loading} onClick={() => void feed.refresh()}>Refresh</button>
     </div>
     <div ref={list} className="world-events-list">
@@ -33,6 +35,7 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       {feed.events.map(event => <article key={event.id} ref={event.id === feed.selectedId ? selected : undefined} className="world-event-card" data-selected={event.id === feed.selectedId}>
         <div className="world-event-meta"><SeverityBadge severity={event.severity} /><span>{event.category}</span><span>{event.confidence}</span></div>
         <button type="button" className="world-event-title" aria-pressed={event.id === feed.selectedId} onClick={() => { feed.selectEvent(event.id, 'list'); if (isMappable(event)) onLocate?.(); }}>{event.title}</button>
+        {feed.retainedIds.includes(event.id) && <div className="world-event-time">Cached previous report · Last observed {new Date(event.last_observed_at).toLocaleString([], { timeZone: 'UTC', hour12: false })} UTC</div>}
         <div className="world-event-location">{event.location || 'Location unspecified'}{!isMappable(event) && ' · No reliable map position'}</div>
         <time className="world-event-time" dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString([], { timeZone: 'UTC', hour12: false })} UTC</time>
         <div className="world-event-sources">{event.sources.map(source => <SourceBadge key={source} source={source} evidence={event.evidence.find(item => item.source === source)} />)}<span className="world-event-source-count">{event.independent_sources} independent</span></div>

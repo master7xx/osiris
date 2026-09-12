@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ContinuousEvent } from './event-ledger';
-import { DEFAULT_EVENT_FILTERS, filterWorldEvents, isMappable, safeEventUrl } from './world-events-view';
+import { DEFAULT_EVENT_FILTERS, filterWorldEvents, projectWorldEvents, isMappable, safeEventUrl } from './world-events-view';
 const event = (overrides: Partial<ContinuousEvent> = {}) => ({ id: 'one', category: 'conflict', severity: 80, confidence: 'unconfirmed', lat: 0, lng: 0, location_confidence: 0.9, ...overrides } as ContinuousEvent);
 describe('shared map and list filtering', () => {
   it('keeps unlocated events in the default list, but never maps them', () => {
@@ -36,4 +36,26 @@ describe('shared map and list filtering', () => {
     expect(filterWorldEvents([event()], filters)).toEqual([]);
   });
 
+});
+
+describe('cached category projection', () => {
+  it('filters before limiting, switches source lists, and never repeats stable IDs', () => {
+    const now = Date.now();
+    const make = (id: string, category: ContinuousEvent['category'], source: string) => event({
+      id, category, priority_score: category === 'conflict' ? 90 : 10,
+      last_observed_at: new Date(now).toISOString(),
+      evidence: [{ source_id: source, source } as ContinuousEvent['evidence'][number]],
+    });
+    const items = Array.from({ length: 301 }, (_, i) => make(`news-${i}`, 'conflict', 'Telegram'));
+    const quake = make('quake', 'earthquake', 'USGS');
+    items.push(quake, quake);
+    const view = (category: string) => projectWorldEvents(items, { ...DEFAULT_EVENT_FILTERS, category }, now);
+    expect(view('').events).toHaveLength(300);
+    expect(view('conflict').sources.map(source => source.source)).toEqual(['Telegram']);
+    expect(view('earthquake').events.map(item => item.id)).toEqual(['quake']);
+    expect(view('earthquake').sources.map(source => source.source)).toEqual(['USGS']);
+    expect(view('wildfire')).toEqual({ events: [], matching: 0, sources: [] });
+    expect(view('conflict').matching).toBe(301);
+    expect(projectWorldEvents(items, DEFAULT_EVENT_FILTERS, now + 49 * 3600000).events).toEqual([]);
+  });
 });

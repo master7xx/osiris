@@ -10,6 +10,7 @@ export interface EventClientCache {
   feed: UnifiedEventFeed;
   cursor?: string;
   savedAt: number;
+  retainedIds?: string[];
 }
 type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 interface Collector { last_success_at: string | null; source_health: EventSourceHealth[]; last_error?: string | null }
@@ -64,8 +65,26 @@ export function validateClientCache(value: unknown): EventClientCache | null {
       || !Array.isArray(cache.feed.events) || !Array.isArray(cache.feed.source_health) || !Number.isFinite(Date.parse(cache.feed.generated_at))
       || cache.mode === 'durable' && (typeof cache.cursor !== 'string' || !cache.cursor.length)) return null;
     checkHealth(cache.feed.source_health);
+    if (cache.retainedIds !== undefined && (!Array.isArray(cache.retainedIds) || !cache.retainedIds.every(id => typeof id === 'string'))) return null;
     cache.feed.events.forEach(checkEvent); return cache;
   } catch { return null; }
+}
+
+/** Keep previously displayed reports for 48 hours without renewing their clocks. */
+export function mergeSnapshotCache(previous: EventClientCache | null, next: EventClientCache): EventClientCache {
+  const now = next.savedAt;
+  const current = new Map(next.feed.events.map(event => [event.id, event]));
+  const retainedIds: string[] = [];
+  if (previous?.mode === 'snapshot') {
+    for (const event of previous.feed.events) {
+      const age = now - Date.parse(event.last_observed_at);
+      if (!current.has(event.id) && Number.isFinite(age) && age <= 48 * 3600000) {
+        current.set(event.id, event);
+        retainedIds.push(event.id);
+      }
+    }
+  }
+  return { ...next, retainedIds, feed: project([...current.values()], null, next.feed) };
 }
 
 /** Returns a new data+cursor checkpoint only after the whole bounded synchronization succeeds. */
@@ -74,10 +93,10 @@ export async function synchronizeEvents(previous: EventClientCache | null, fetch
   const config = await json(await get('/api/events/sync'));
   if (config.version !== 1 || !['snapshot', 'durable'].includes(config.mode)) throw new Error('Unsupported event sync mode');
   if (config.mode === 'snapshot') {
-    const feed: UnifiedEventFeed = await json(await get('/api/events?limit=300'));
+    const feed: UnifiedEventFeed = await json(await get('/api/events/snapshot'));
     const cache = validateClientCache({ version: 1, mode: 'snapshot', feed, savedAt: Date.now() });
     if (!cache) throw new Error('Invalid event snapshot');
-    return cache;
+    return mergeSnapshotCache(previous, cache);
   }
   const bootstrap = async (): Promise<EventClientCache> => {
     const data = await json(await get('/api/events/stored'));

@@ -18,3 +18,13 @@ export function filterWorldEvents(events: ContinuousEvent[], filters: EventFilte
 export function safeEventUrl(value: string) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined; } catch { return undefined; }
 }
+
+/** One projection shared by the cards, markers and category summary. */
+export function projectWorldEvents(events: ContinuousEvent[], filters: EventFilters, now: number) {
+  const unique = new Map(events.map(event => [event.id, event]));
+  const active = [...unique.values()].filter(event => now - Date.parse(event.last_observed_at) <= 48 * 3600000);
+  const matching = filterWorldEvents(active, filters).sort((a, b) => b.priority_score - a.priority_score);
+  const visible = matching.slice(0, 300);
+  const sources = new Map(visible.flatMap(event => event.evidence.map(item => [item.source_id, item] as const)));
+  return { events: visible, matching: matching.length, sources: [...sources.values()] };
+}

@@ -455,3 +455,19 @@ The scoped Turbopack loader handles MapLibre 6’s dynamic worker URL expression
 
 Distance and area readouts use consistent English numeric formatting (for
 example `4,200 km` and `12.50 km²`) regardless of operating-system locale.
+
+### Category views and previous reports
+
+WORLD EVENTS filters the complete client checkpoint before applying the 300-card
+display limit. In snapshot mode `/api/events/snapshot` supplies a complete feed;
+durable mode continues to use stored events and cursor synchronization. Switching
+Category reads the existing cache immediately while the normal background refresh
+continues. Previously received snapshot reports stay available for up to 48 hours
+from their last observation and are marked `Cached previous report` when absent
+from the latest response. A new report with the same ID replaces its cached copy.
+
+The category summary and expandable `Sources in this view` follow the visible
+cards and filters. `PARTIAL SOURCES (GLOBAL)` describes collector availability
+across all categories; changing a display filter cannot change that global health.
+All databases remain on the server. Browser cache is disposable and subject to
+the existing storage quota; a large checkpoint can remain memory-only.

@@ -63,3 +63,26 @@ describe('client event checkpoint synchronization', () => {
     await expect(synchronizeEvents(await initial(), queue({ mode: 'durable', version: 1 }, { changes: [], collector, cursor: 'start', has_more: true }).fetcher, signal())).rejects.toThrow('did not advance');
   });
 });
+
+describe('cached category continuity', () => {
+  it('retains previously shown categories, replaces updates by ID, and expires old reports', async () => {
+    const now = new Date().toISOString();
+    const feed = (await initial()).feed;
+    const report = (id: string, category: FusedEvent['category'], lastObserved = now) => ({
+      ...feed.events[0], id, category, last_observed_at: lastObserved,
+    });
+    const old = report('expired', 'weather', new Date(Date.now() - 49 * 3600000).toISOString());
+    const firstFeed = { ...feed, events: [report('a', 'conflict'), report('b', 'earthquake'), old] };
+    const first = await synchronizeEvents(null, queue({ mode: 'snapshot', version: 1 }, firstFeed).fetcher, signal());
+    const mock = queue({ mode: 'snapshot', version: 1 }, { ...feed, events: [{ ...report('a', 'conflict'), title: 'Updated' }] });
+    const second = await synchronizeEvents(first, mock.fetcher, signal());
+    expect(mock.urls).toContain('/api/events/snapshot');
+    expect(second.feed.events.map(item => item.id)).toEqual(['a', 'b']);
+    expect(second.feed.events[0].title).toBe('Updated');
+    expect(second.retainedIds).toEqual(['b']);
+    expect(second.feed.events[1].last_observed_at).toBe(now);
+    const third = await synchronizeEvents(second, queue({ mode: 'snapshot', version: 1 }, { ...feed, events: [report('b', 'earthquake')] }).fetcher, signal());
+    expect(third.retainedIds).toEqual(['a']);
+    expect(third.feed.events.filter(item => item.id === 'b')).toHaveLength(1);
+  });
+});

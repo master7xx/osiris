@@ -54,7 +54,9 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
     throw new Error('all unified event sources unavailable');
   }
 
-  const fused = fuseEvents([...core.events, ...supplemental.events], { now, limit: 300 });
+  const signals = [...core.events, ...supplemental.events];
+  // The display limit belongs after Category filtering, never before caching.
+  const fused = fuseEvents(signals, { now, limit: signals.length });
   const { events, cursor } = applyEventLedger(fused, now);
   const categories: Partial<Record<EventCategory, number>> = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;

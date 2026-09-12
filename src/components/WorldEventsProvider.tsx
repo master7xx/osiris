@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { UnifiedEventFeed } from '@/lib/event-feed';
-import { DEFAULT_EVENT_FILTERS, filterWorldEvents, isMappable, type EventFilters } from '@/lib/world-events-view';
+import { DEFAULT_EVENT_FILTERS, projectWorldEvents, isMappable, type EventFilters } from '@/lib/world-events-view';
 import { readEventCache, writeEventCache } from '@/lib/client-event-cache';
 import { synchronizeEvents, type EventClientCache } from '@/lib/client-event-sync';
 import { setEventIngestHealth } from '@/lib/event-health-client';
@@ -15,7 +15,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'snapshot' | 'durable'>('snapshot');
+  const [retainedIds, setRetainedIds] = useState<string[]>([]);
   const [fromCache, setFromCache] = useState(false);
   const checkpoint = useRef<EventClientCache | null>(null);
   const [now, setNow] = useState(0);
@@ -32,7 +32,7 @@ function useWorldEventsState(onMapSelect: () => void) {
       if (request.current !== controller) return;
       checkpoint.current = next;
       writeEventCache(next);
-      setMode(next.mode); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(false);
+      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(false);
     } catch (err) {
       if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(Boolean(checkpoint.current)); }
     } finally {
@@ -43,7 +43,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   useEffect(() => {
     const initial = setTimeout(() => {
       const cached = readEventCache();
-      if (cached) { checkpoint.current = cached; setMode(cached.mode); setSnapshot(cached.feed); setEventIngestHealth(cached.feed); setFromCache(true); setNow(Date.now()); }
+      if (cached) { checkpoint.current = cached; setRetainedIds(cached.retainedIds ?? []); setSnapshot(cached.feed); setEventIngestHealth(cached.feed); setFromCache(true); setNow(Date.now()); }
       void refresh();
     }, 0);
     const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 90000);
@@ -53,17 +53,15 @@ function useWorldEventsState(onMapSelect: () => void) {
     window.addEventListener('online', visible);
     return () => { const current = request.current; request.current = null; current?.abort(); clearTimeout(initial); clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', visible); window.removeEventListener('online', visible); };
   }, [refresh]);
-  const events = useMemo(() => {
-    const retained = (snapshot?.events ?? []).filter(event => mode !== 'durable' || now - Date.parse(event.last_observed_at) <= 48 * 3600000);
-    return filterWorldEvents(retained, filters).sort((a, b) => b.priority_score - a.priority_score).slice(0, 300);
-  }, [snapshot, filters, now, mode]);
+  const view = useMemo(() => projectWorldEvents(snapshot?.events ?? [], filters, now), [snapshot, filters, now]);
+  const events = view.events;
   const mappable = useMemo(() => events.filter(isMappable), [events]);
   const selectEvent = useCallback((id: string, origin: 'map' | 'list') => {
     setSelectedId(id);
     if (origin === 'map') { setMapSelection(value => value + 1); onMapSelectRef.current(); }
     else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
   }, []);
-  return { snapshot, events, mappable, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
+  return { snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
     enabled, setEnabled, loading, error, refresh, fromCache,
     stale: !!snapshot && (fromCache || now - Date.parse(snapshot.generated_at) > 180000),
     partial: !!snapshot && (snapshot.healthy_sources < snapshot.source_count || snapshot.source_health.some(source => source.state !== 'healthy')) };
