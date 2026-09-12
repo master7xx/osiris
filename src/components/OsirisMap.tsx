@@ -1537,7 +1537,10 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       });
     });
 
-    return () => { map.remove(); mapRef.current = null; };
+    // Dock changes resize the map container without a window resize.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(container);
+    return () => { resizeObserver.disconnect(); map.remove(); mapRef.current = null; };
   }, []);
 
   // Day/Night

@@ -67,6 +67,26 @@ npm start
 
 See [WINDOWS.md](WINDOWS.md) for native development and debugging details.
 
+## Dashboard layout
+
+The desktop dashboard now uses a docked shell with a compact UTC/API header,
+an expandable layer navigation, a persistent location search and a news panel
+that can be hidden. The map resizes when panel widths change. Existing map tools
+remain on the right-hand tool strip; layer keys, URL restoration and Style Studio
+settings are retained. The `L` shortcut still hides/shows the layer navigation.
+
+Navigation starts expanded at 1440 px and above and compact on smaller desktops.
+Below 1024 px, side panels overlay the map and opening one closes the other.
+The existing phone layout remains in use. Panel close buttons restore focus to
+the corresponding header control; Escape closes a focused side panel.
+
+This is the first interface implementation stage. The right panel still uses
+`IntelFeed` and `/api/news`; it has not yet been migrated to the shared event
+snapshot or synchronized event selection. DEBUG retains its existing layout.
+See [shell implementation notes](docs/dashboard-shell.md) for the changes and
+remaining browser validation, and [PR #31](https://github.com/master7xx/osiris/pull/31)
+for the proposed full interface plan.
+
 ## Unified world-event architecture
 
 ```mermaid

@@ -14,6 +14,8 @@ interface LayerPanelProps {
   activeLayers: any;
   setActiveLayers: React.Dispatch<React.SetStateAction<any>>;
   isMobile?: boolean;
+  docked?: boolean;
+  compact?: boolean;
   theme?: 'core' | 'ghost';
   setTheme?: (theme: 'core' | 'ghost') => void;
   /** Server-side capabilities, e.g. { cloudflare: true }. Layers declaring a
@@ -190,7 +192,7 @@ function SubLayerStem() {
   );
 }
 
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {} }: LayerPanelProps) {
+function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, docked = false, compact = false, theme = 'core', setTheme, capabilities = {} }: LayerPanelProps) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   /**
    * A pinned group stays open when the pointer leaves. Hover-only flyouts are
@@ -243,7 +245,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
   };
 
   /* ── MOBILE ── */
-  if (isMobile) {
+  if (isMobile || (docked && !compact)) {
     return (
       <div className="flex flex-col gap-5 py-2">
         {visibleGroups.map((group) => (
@@ -285,6 +287,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
           <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Style Studio</span>
           <button
             onClick={() => setStudioOpen(o => !o)}
+            aria-label="Style Studio"
             aria-pressed={studioOpen}
             className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
             style={{
@@ -296,7 +299,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
           </button>
         </div>
         <AnimatePresence>
-          {studioOpen && <StyleStudio isMobile onClose={() => setStudioOpen(false)} />}
+          {studioOpen && <StyleStudio isMobile={isMobile} onClose={() => setStudioOpen(false)} />}
         </AnimatePresence>
 
         {/* MOBILE GHOST TOGGLE */}
@@ -305,6 +308,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
             <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Ghost Protocol</span>
             <button
               onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
+              aria-label="Ghost Protocol"
+              aria-pressed={theme === 'ghost'}
               className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
               style={{
                 background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.15)' : 'transparent',
@@ -324,8 +329,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
     <motion.div
       initial={{ x: -60, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      transition={{ type: 'spring', damping: 30, stiffness: 200, delay: 2.8 }}
-      className="absolute top-0 left-0 h-full w-[48px] flex flex-col items-center pt-24 pb-6 z-50 pointer-events-auto"
+      transition={{ type: 'spring', damping: 30, stiffness: 200, delay: docked ? 0 : 2.8 }}
+      className={`absolute top-0 left-0 h-full w-[48px] flex flex-col items-center ${docked ? 'pt-2 pb-2' : 'pt-24 pb-6'} z-50 pointer-events-auto`}
       style={{
         background: 'rgba(0,0,0,0.15)',
         backdropFilter: 'blur(24px) saturate(1.2)',
@@ -478,6 +483,7 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
       {/* Style Studio */}
       <button
         onClick={() => setStudioOpen(o => !o)}
+        aria-label="Style Studio"
         aria-pressed={studioOpen}
         className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
         style={{ background: studioOpen ? 'var(--hover-accent)' : 'transparent' }}
@@ -501,6 +507,8 @@ function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'co
       {setTheme && (
         <button
           onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
+          aria-label="Ghost Protocol"
+          aria-pressed={theme === 'ghost'}
           className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
           style={{
             background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.1)' : 'transparent',
