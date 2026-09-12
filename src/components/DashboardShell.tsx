@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Globe, PanelLeftClose, PanelLeftOpen, Newspaper, X } from 'lucide-react';
 import './dashboard-shell.css';
+import { useWorldEvents } from './WorldEventsProvider';
 
 interface DashboardShellProps {
   mobile: boolean;
@@ -28,14 +29,16 @@ function useMediaQuery(query: string) {
 export default function DashboardShell({ mobile, navigationVisible, onShowNavigation, navigation, news, status, search, children }: DashboardShellProps) {
   const [navigationChoice, setExpanded] = useState<boolean | null>(null);
   const [newsChoice, setNewsOpen] = useState<boolean | null>(null);
+  const { mapSelection } = useWorldEvents();
+  const [handledSelection, setHandledSelection] = useState(0);
   const narrow = useMediaQuery('(max-width: 1023px)');
   const wide = useMediaQuery('(min-width: 1440px)');
-  const newsOpen = newsChoice ?? !narrow;
+  const newsOpen = mapSelection > handledSelection || (newsChoice ?? !narrow);
   const expanded = (navigationChoice ?? wide) && (!narrow || !newsOpen);
   const navigationButton = useRef<HTMLButtonElement>(null);
   const newsButton = useRef<HTMLButtonElement>(null);
 
-  const closeNews = () => { setNewsOpen(false); newsButton.current?.focus(); };
+  const closeNews = () => { setHandledSelection(mapSelection); setNewsOpen(false); newsButton.current?.focus(); };
   const closeNavigation = () => { setExpanded(false); navigationButton.current?.focus(); };
 
   if (mobile) return <>{children}</>;
@@ -48,9 +51,10 @@ export default function DashboardShell({ mobile, navigationVisible, onShowNaviga
         <button ref={navigationButton} type="button" className="dashboard-icon-button" aria-label={navigationVisible && expanded ? 'Collapse navigation' : 'Expand navigation'} aria-expanded={navigationVisible && expanded} aria-controls="dashboard-navigation" onClick={() => {
           onShowNavigation();
           setExpanded(!navigationVisible || !expanded);
-          if (narrow) setNewsOpen(false);
+          if (narrow) { setHandledSelection(mapSelection); setNewsOpen(false); }
         }}>{expanded ? <PanelLeftClose /> : <PanelLeftOpen />}</button>
         <button ref={newsButton} type="button" className="dashboard-icon-button" aria-label={newsOpen ? 'Hide news panel' : 'Show news panel'} aria-expanded={newsOpen} aria-controls="dashboard-news" onClick={() => {
+          setHandledSelection(mapSelection);
           setNewsOpen(!newsOpen);
           if (narrow) setExpanded(false);
         }}><Newspaper /></button>
@@ -66,10 +70,10 @@ export default function DashboardShell({ mobile, navigationVisible, onShowNaviga
         {children}
         <div className="dashboard-search">{search}</div>
       </div>
-      {newsOpen && <aside id="dashboard-news" className="dashboard-news" aria-label="News feed" onKeyDown={event => {
+      {newsOpen && <aside id="dashboard-news" className="dashboard-news" aria-label="World event feed" onKeyDown={event => {
         if (event.key === 'Escape') { event.stopPropagation(); closeNews(); }
       }}>
-        <div className="dashboard-panel-heading"><span>NEWS / SOURCES</span><button type="button" className="dashboard-icon-button" aria-label="Close news panel" onClick={closeNews}><X /></button></div>
+        <div className="dashboard-panel-heading"><span>WORLD EVENTS / SOURCES</span><button type="button" className="dashboard-icon-button" aria-label="Close news panel" onClick={closeNews}><X /></button></div>
         {news}
       </aside>}
     </div>

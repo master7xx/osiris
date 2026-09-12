@@ -4,7 +4,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine } from 'lucide-react';
-import IntelFeed from '@/components/IntelFeed';
+import WorldEventsPanel from '@/components/WorldEventsPanel';
+import { WorldEventsProvider } from '@/components/WorldEventsProvider';
 import DashboardShell from '@/components/DashboardShell';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -903,13 +904,14 @@ export default function Dashboard() {
 
 
   return (
+    <WorldEventsProvider onMapSelect={() => { if (isMobile) setMobilePanel('intel'); }}>
     <main className="fixed inset-0 w-full h-full bg-[var(--bg-void)] overflow-hidden">
       <DashboardShell
         mobile={isMobile}
         navigationVisible={showLayers}
         onShowNavigation={() => setShowLayers(true)}
         navigation={compact => <LayerPanel docked compact={compact} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />}
-        news={<IntelFeed data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} />}
+        news={<WorldEventsPanel />}
         search={<SearchBar onLocate={(lat, lng, zoom) => setFlyToLocation({ lat, lng, zoom, ts: Date.now() })} />}
         status={<><ZuluClock /><span title="Application backend connection; not aggregate source health">API: <span className={backendStatus === 'connected' ? 'text-[var(--alert-green)]' : 'text-[var(--alert-orange)]'}>{backendStatus.toUpperCase()}</span></span><span className="dashboard-optional-status"><ActiveEntityCount data={data} /> ENTITIES</span><TokenPanel /></>}
       >
@@ -1700,7 +1702,7 @@ export default function Dashboard() {
                     </>
                   )}
                   {mobilePanel === 'markets' && <MarketsPanel data={data} spaceWeather={spaceWeather} />}
-                  {mobilePanel === 'intel' && <IntelFeed data={data} onLocate={(lat, lng) => { setFlyToLocation({ lat, lng, ts: Date.now() }); setMobilePanel(null); }} />}
+                  {mobilePanel === 'intel' && <WorldEventsPanel onLocate={() => setMobilePanel(null)} />}
                   {mobilePanel === 'search' && (
                     <div className="space-y-2">
                       <SearchBar onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setMobilePanel(null); }} />
@@ -1857,5 +1859,6 @@ export default function Dashboard() {
 
       </DashboardShell>
     </main>
+    </WorldEventsProvider>
   );
 }

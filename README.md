@@ -80,10 +80,21 @@ Below 1024 px, side panels overlay the map and opening one closes the other.
 The existing phone layout remains in use. Panel close buttons restore focus to
 the corresponding header control; Escape closes a focused side panel.
 
-This is the first interface implementation stage. The right panel still uses
-`IntelFeed` and `/api/news`; it has not yet been migrated to the shared event
-snapshot or synchronized event selection. DEBUG offers a SIZE button that cycles between its near-full-screen view, half
-and one-third of the screen height, with compact views anchored at the bottom.
+The right panel and phone event panel now use one `/api/events?limit=300`
+snapshot shared with map markers. Category, minimum severity, confidence and
+located-only filters apply to both views. Clicking a card locates a reliably
+positioned event; clicking its marker selects the card and opens the panel.
+Unlocated events stay in the list. Expanded cards show supporting sources;
+severity and corroboration confidence remain separate fields.
+
+The snapshot refreshes every 90 seconds while visible and when the page becomes
+visible. Failed refreshes retain the last snapshot; partial source coverage and
+snapshots older than three minutes are labelled. Selection and filters survive
+refreshes and panel close/reopen within the page. The latest-state API remains
+capped at 300 events and does not provide durable history.
+
+DEBUG offers a SIZE button cycling between near-full-screen, half and one-third
+height, with compact views anchored at the bottom.
 See [shell implementation notes](docs/dashboard-shell.md) for the changes and
 remaining browser validation, and [PR #31](https://github.com/master7xx/osiris/pull/31)
 for the proposed full interface plan.

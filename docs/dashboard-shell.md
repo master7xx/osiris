@@ -1,4 +1,4 @@
-# Dashboard shell: implementation stage A
+# Dashboard shell and shared World Events
 
 Implements the first part of the reference interface plan in PR #31, on top of
 master after PR #30. This is a layout change, not a new ingestion pipeline.
@@ -12,7 +12,7 @@ master after PR #30. This is a layout change, not a new ingestion pipeline.
 - `LayerPanel.tsx` supports a docked expanded view using existing layer definitions
   and a compact icon rail. Credential gates, sublayer controls and theme actions
   remain available. Expanded navigation scrolls independently.
-- `page.tsx` supplies the existing layer controls, IntelFeed, SearchBar, UTC clock
+- `page.tsx` supplies the existing layer controls, WorldEventsPanel, SearchBar, UTC clock
   and backend status. The original phone layout and desktop tool strip remain.
 - `OsirisMap.tsx` observes container size changes with ResizeObserver and cleans
   up the observer on map removal.
@@ -32,10 +32,20 @@ master after PR #30. This is a layout change, not a new ingestion pipeline.
 | Close actions | Focus returns to the header control; Escape in a side panel closes it |
 | Motion | Shell descendants respect reduced-motion preferences |
 
-The news panel remains `/api/news` with the existing SIGINT content. It does not
-claim to be the unified World Events list. Opening/closing it mounts/unmounts the
-existing poller, which retains its cleanup behavior. Backend `CONNECTED` describes
-the application's connection check, not the health of all upstream providers.
+`WorldEventsProvider` owns the single event poller, filters and selected stable ID.
+The desktop and phone panels and `BreakingNewsMarkers` consume that context;
+closing a panel does not stop collection or reset filters. Markers use exactly
+the filtered events with finite, valid coordinates and location confidence >=0.75.
+All other events remain list-only unless the located-only filter is enabled.
+Selection from the map opens the panel; selection from a card flies to its
+position when available. Events leaving the current snapshot/filters retain their
+selected ID with an explicit notice. No coordinate offsets are introduced.
+
+One request is allowed at a time, with a 30-second timeout and unmount cleanup.
+Polling runs every 90 seconds while visible and immediately on visibility return.
+Refresh failure retains the previous snapshot; source errors/partial states and
+snapshot age >180 seconds are displayed separately. DEBUG ingest health receives
+the same snapshot. Backend CONNECTED remains the application connection check.
 
 ## Validation and remaining gate
 
@@ -55,10 +65,9 @@ the application's connection check, not the health of all upstream providers.
 
 ## Next stage
 
-Move the news list and world-event marker selection to one client-side snapshot
-from `/api/events`, with category/severity/confidence filters and shared selected
-ID. Then refine the event card, source-health states and DEBUG sizing. The existing
-latest-state API limitations remain until durable storage is implemented.
+Validate map/card selection, combined filters, mobile panel navigation and stale
+fallback locally. Durable event storage and background collection remain separate
+backend work; the current API is a process-local latest-state snapshot (300 cap).
 
 ## DEBUG size follow-up
 

@@ -1,0 +1,15 @@
+.world-events { display:flex; flex-direction:column; min-height:0; height:100%; color:#b7cbd8; font:11px/1.5 var(--font-geist-mono),monospace; }
+.world-events-filters { display:grid; gap:7px; padding:12px; border-bottom:1px solid #16364b; }
+.world-events-filters strong { color:#00d9ff; letter-spacing:1px; }
+.world-events-filters label { display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.world-events-filters select { max-width:190px; background:#081925; color:#d9ebf5; border:1px solid #29465b; padding:4px; }
+.world-events-status { padding:8px 12px; font-size:10px; color:#d4bd79; }
+.world-events-status button { margin-left:8px; color:#00d9ff; cursor:pointer; }
+.world-events-list { overflow:auto; flex:1; min-height:0; padding:0 8px 12px; }
+.world-event-card { margin:6px 0; padding:10px; border:1px solid #183549; border-left:2px solid #298ba7; border-radius:5px; background:#07131e; overflow-wrap:anywhere; }
+.world-event-card[data-selected=true] { border-color:#00d9ff; background:#0c2638; }
+.world-event-meta { color:#78a7ba; font-size:9px; text-transform:uppercase; }
+.world-event-title { display:block; text-align:left; width:100%; color:#edf6ff; font:600 12px/1.5 sans-serif; margin:7px 0; cursor:pointer; }
+.world-event-sources,.world-event-detail { margin-top:7px; }
+.world-event-detail a { color:#00d9ff; text-decoration:underline; }
+.world-events button:focus-visible,.world-events select:focus-visible,.world-events input:focus-visible { outline:2px solid #00d9ff; outline-offset:2px; }
