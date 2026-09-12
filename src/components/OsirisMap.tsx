@@ -2,7 +2,7 @@ import { buildGeometry, closeRing, drawReducer, initialDrawState, measure, type 
 'use client';
 
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import { createSatelliteLayer, parseColor, type SatPoint } from '@/lib/satellite-layer';
 import { MAP_DEFAULTS, MAP_PALETTE_KEYS, readMapPalette, satColorFor, type MapPalette } from '@/lib/map-palette';
 import { STYLE_EVENT } from '@/lib/style-tokens';
@@ -248,14 +248,11 @@ function OsirisMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightCl
       },
     };
 
-    // MapLibre asks for a high-performance WebGL2 context and throws outright if it
-    // cannot get one. Some machines refuse that exact request while still granting a
-    // plainer context — a blocklisted discrete GPU, a driver Chrome only trusts for
-    // WebGL1 — so walk down to weaker requests before giving up.
+    // MapLibre 6 requires WebGL2. Retry with a lower-power context for drivers
+    // that refuse the default high-performance request.
     const attributeFallbacks: maplibregl.MapOptions['canvasContextAttributes'][] = [
       undefined,
       { powerPreference: 'low-power', failIfMajorPerformanceCaveat: false },
-      { contextType: 'webgl', powerPreference: 'low-power', failIfMajorPerformanceCaveat: false },
     ];
 
     let map: maplibregl.Map | undefined;

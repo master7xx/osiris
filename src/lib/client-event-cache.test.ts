@@ -18,4 +18,10 @@ describe('optional browser event cache', () => {
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ ...cache(), savedAt: Date.now() - 8 * 86400000 }) });
     expect(readEventCache()).toBeNull();
   });
+  it('rejects cached null source-health entries before rendering', () => {
+    const checkpoint = cache();
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ ...checkpoint, feed: { ...checkpoint.feed, source_health: [null] } }) });
+    expect(readEventCache()).toBeNull();
+  });
+
 });

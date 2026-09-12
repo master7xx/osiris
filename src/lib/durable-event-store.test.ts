@@ -151,4 +151,13 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     }
   });
 
+  it('does not renew observation freshness when replaying retained source signals', async () => {
+    const item = { ...write(), observedAt: '2026-09-10T01:00:00Z' };
+    await store.commitBatch(randomUUID(), [item]);
+    await store.commitBatch(randomUUID(), [{ ...item, event: { ...item.event, priority_score: 20 } }]);
+    const row = (await pool.query('SELECT first_observed_at,last_observed_at FROM osiris_events.events')).rows[0];
+    expect(row.last_observed_at.toISOString()).toBe('2026-09-10T01:00:00.000Z');
+    expect(row.first_observed_at.toISOString()).toBe('2026-09-10T01:00:00.000Z');
+  });
+
 });

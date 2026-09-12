@@ -4,6 +4,7 @@ import type { FusedEvent } from './event-fusion';
 
 export interface UpstreamIdentity { sourceId: string; upstreamId: string }
 export interface EventWrite {
+  observedAt?: string;
   identities: UpstreamIdentity[];
   event: FusedEvent;
   /** null permits creation only; existing events require their last read revision. */
@@ -41,6 +42,7 @@ export class DurableEventStore {
     // Snapshot before waiting for a connection; callers cannot mutate a queued batch.
     const writes = structuredClone(input);
     for (const write of writes) {
+      if (write.observedAt && (!Number.isFinite(Date.parse(write.observedAt)) || Date.parse(write.observedAt) > Date.now() + 60000)) throw new Error('Invalid observation time');
       if (!write.identities.length || write.identities.some(id => !id.sourceId.trim() || !id.upstreamId.trim())) throw new Error('Upstream identity required');
       if (write.expectedRevision !== null && !/^[1-9][0-9]*$/.test(write.expectedRevision)) throw new Error('Invalid expected revision');
     }
@@ -75,13 +77,13 @@ export class DurableEventStore {
         if (changed) {
           cursor += BigInt(1);
           const payload = { ...write.event, id };
-          await client.query(`INSERT INTO osiris_events.events (id, revision, cursor, content_hash, payload) VALUES ($1,$2,$3,$4,$5)
+          await client.query(`INSERT INTO osiris_events.events (id, revision, cursor, content_hash, payload, first_observed_at, last_observed_at) VALUES ($1,$2,$3,$4,$5,COALESCE($6::timestamptz,clock_timestamp()),COALESCE($6::timestamptz,clock_timestamp()))
             ON CONFLICT (id) DO UPDATE SET revision=EXCLUDED.revision, cursor=EXCLUDED.cursor,
-            content_hash=EXCLUDED.content_hash, payload=EXCLUDED.payload, last_observed_at=clock_timestamp()`,
-          [id, revision, cursor.toString(), contentHash, JSON.stringify(payload)]);
+            content_hash=EXCLUDED.content_hash, payload=EXCLUDED.payload, last_observed_at=GREATEST(osiris_events.events.last_observed_at,EXCLUDED.last_observed_at)`,
+          [id, revision, cursor.toString(), contentHash, JSON.stringify(payload), write.observedAt ?? null]);
           await client.query('INSERT INTO osiris_events.revisions (cursor,event_id,revision,payload) VALUES ($1,$2,$3,$4)', [cursor.toString(), id, revision, JSON.stringify(payload)]);
         } else {
-          await client.query('UPDATE osiris_events.events SET last_observed_at=clock_timestamp(),payload=$2 WHERE id=$1', [id, JSON.stringify({ ...write.event, id })]);
+          await client.query('UPDATE osiris_events.events SET last_observed_at=GREATEST(last_observed_at,COALESCE($3::timestamptz,clock_timestamp())),payload=$2 WHERE id=$1', [id, JSON.stringify({ ...write.event, id }), write.observedAt ?? null]);
         }
         for (const identity of write.identities) await client.query(`INSERT INTO osiris_events.identities (source_id,upstream_id,event_id)
           VALUES ($1,$2,$3) ON CONFLICT (source_id,upstream_id) DO NOTHING`, [identity.sourceId, identity.upstreamId, id]);

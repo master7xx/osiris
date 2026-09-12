@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
 
     for (const entity of body.entities) {
       // Validate minimum required fields
-      if (!entity.id || !entity.position?.lat || !entity.position?.lng) {
+      if (!entity?.id || !Number.isFinite(entity.position?.lat) || !Number.isFinite(entity.position?.lng) || Math.abs(entity.position.lat) > 90 || Math.abs(entity.position.lng) > 180) {
         rejected++;
-        errors.push(`Entity missing required fields (id, position.lat, position.lng): ${entity.id || 'unknown'}`);
+        errors.push(`Entity missing required fields (id, position.lat, position.lng): ${entity?.id || 'unknown'}`);
         continue;
       }
 

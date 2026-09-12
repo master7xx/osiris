@@ -37,8 +37,9 @@ separate from the article-based world-event feed.
 
 ## Quick start: native Windows
 
-Use Node.js 22 to match Windows CI and the Docker image. `package.json` declares
-Node.js 20 or newer. Install Git and use a browser with WebGL support.
+Use Node.js 22.12 or newer within the Node 22 line to match Windows CI and the
+Docker image; Node 24 is also supported. The test toolchain no longer supports
+Node 20. Install Git and use a browser with WebGL2 support (required by MapLibre 6).
 
 From PowerShell:
 
@@ -428,3 +429,22 @@ then reconnect. Cached rows should remain usable and clearly labelled; reconnect
 must catch up without duplicate cards. Cursor-reset and interrupted-page behavior
 also have automated tests. There is no cross-tab live synchronization yet; each
 tab owns its poller and persists complete checkpoints independently.
+
+## Comprehensive audit follow-up
+
+The audit updates Next.js, MapLibre, sharp and the test toolchain to versions
+outside the advisory ranges reported for the previous lockfile. MapLibre 6
+requires WebGL2; the older WebGL1 fallback is removed. See
+[the audit report](docs/comprehensive-audit.md) for tested scope and remaining gates.
+
+The durable collector now saves all fused candidates in bounded transactions,
+not only the UI's top 300. Events retain the latest actual upstream observation
+time when stored signals are reprocessed. Ownership is renewed during large
+batches. UI ranking remains capped at 300 events. Multiple transactions can become
+visible before collector health is updated; this is not a whole-cycle atomic snapshot.
+
+Camera image proxy redirects are revalidated against the provider allowlist,
+private-address checks remain enabled, TLS certificates are verified and image
+responses are bounded to 8 MiB. Invalid certificates and non-image responses now
+fail closed. Tile proxy redirects are rejected. Provider compatibility still
+requires a live camera check on the deployment host.

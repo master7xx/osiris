@@ -28,6 +28,6 @@ export async function readDurableUnifiedFeed(): Promise<UnifiedEventFeed> {
     confirmed: events.filter(event => event.confidence === 'confirmed').length, corroborating: events.filter(event => event.confidence === 'corroborating').length,
     unconfirmed: events.filter(event => event.confidence === 'unconfirmed').length, categories, source_health: health,
     source_count: health.reduce((sum, source) => sum + source.source_count, 0), healthy_sources: health.reduce((sum, source) => sum + source.healthy_sources, 0),
-    cursor: Math.max(0, ...all.map(event => event.change_sequence)), new_events: 0, updated_events: 0, ongoing_events: events.length,
+    cursor: all.reduce((cursor, event) => Math.max(cursor, event.change_sequence), 0), new_events: 0, updated_events: 0, ongoing_events: events.length,
     generated_at: new Date(snapshot.collector.last_success_at).toISOString() };
 }

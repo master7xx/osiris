@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
 
-const npm = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const child = spawn(npm, ['vitest', 'run'], {
+import { fileURLToPath } from 'node:url';
+const vitest = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url));
+const child = spawn(process.execPath, [vitest, 'run'], {
   stdio: 'inherit',
   env: { ...process.env, RUN_LIVE_TESTS: '1' },
   shell: false,

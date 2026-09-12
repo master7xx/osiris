@@ -11,11 +11,11 @@ export async function GET(request: NextRequest) {
     // Only allow cartocdn.com domains to prevent open proxy abuse
     const targetUrl = new URL(url);
     const host = targetUrl.hostname.toLowerCase();
-    if (host !== 'cartocdn.com' && !host.endsWith('.cartocdn.com')) {
+    if (!['http:', 'https:'].includes(targetUrl.protocol) || targetUrl.username || targetUrl.password || targetUrl.port || (host !== 'cartocdn.com' && !host.endsWith('.cartocdn.com'))) {
       return NextResponse.json({ error: 'Forbidden domain' }, { status: 403 });
     }
 
-    const response = await fetch(targetUrl.toString(), { signal: AbortSignal.timeout(15000),
+    const response = await fetch(targetUrl.toString(), { redirect: 'error', signal: AbortSignal.timeout(15000),
       headers: {
         'Accept': '*/*',
         'User-Agent': 'Osiris-Tile-Proxy/1.0',

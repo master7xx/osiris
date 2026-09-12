@@ -1,3 +1,4 @@
+import { batches, observationIndex } from '../src/lib/collector-observations';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -30,27 +31,45 @@ try {
           await client.query('SELECT cursor FROM osiris_events.metadata WHERE singleton FOR UPDATE');
           const ownership = (await client.query('SELECT 1 FROM osiris_events.collector WHERE owner=$1 AND generation=$2 AND expires_at>clock_timestamp()', [owner, lease.generation])).rows;
           if (!ownership.length) throw new Error('Collector lease expired');
-          for (const signal of [...core.events, ...extra.events]) await client.query(`INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)
+          let storedSignals = 0;
+          for (const signal of [...core.events, ...extra.events]) {
+            if (storedSignals++ % 100 === 0) {
+              const renewed = await client.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()+interval '120 seconds' WHERE owner=$1 AND generation=$2 AND expires_at>clock_timestamp()", [owner, lease.generation]);
+              if (!renewed.rowCount) throw new Error('Collector lease expired');
+            }
+            await client.query(`INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)
             ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload,observed_at=clock_timestamp()`, [JSON.stringify([signal.evidence.map(item => item.source_id).sort(), signal.id]), JSON.stringify(signal)]);
+          }
           await client.query("DELETE FROM osiris_events.signals WHERE observed_at < clock_timestamp()-interval '48 hours'");
           await client.query('COMMIT');
         } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
-        const signals = (await pool.query("SELECT payload FROM osiris_events.signals WHERE observed_at>=clock_timestamp()-interval '48 hours'")).rows.map(row => row.payload as IncomingEvent);
-        const fused = fuseEvents(signals, { now: Date.now(), limit: 300 });
+        const signalRows = (await pool.query("SELECT payload,observed_at FROM osiris_events.signals WHERE observed_at>=clock_timestamp()-interval '48 hours'")).rows;
+        const observedAt = observationIndex(signalRows);
+        const signals = signalRows.map(row => row.payload as IncomingEvent);
+        const fused = fuseEvents(signals, { now: Date.now(), limit: signals.length });
         const writes: EventWrite[] = [];
         const seen = new Set<string>();
         let conflicts = 0;
+        let prepared = 0;
         for (const event of fused) {
+          if (prepared++ % 100 === 0) {
+            const renewed = await acquireCollectorLease(pool, owner);
+            if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
+          }
           const identities = event.evidence.filter(item => item.url).map(item => ({ sourceId: item.source_id, upstreamId: item.url! }));
           if (!identities.length) identities.push({ sourceId: 'fusion', upstreamId: event.id });
           const rows = (await pool.query(`SELECT DISTINCT e.id,e.revision FROM osiris_events.events e JOIN osiris_events.identities i ON i.event_id=e.id
             WHERE (i.source_id,i.upstream_id) IN (SELECT * FROM unnest($1::text[],$2::text[]))`, [identities.map(id => id.sourceId), identities.map(id => id.upstreamId)])).rows;
           if (rows.length > 1 || rows[0] && seen.has(rows[0].id)) { conflicts++; continue; }
           if (rows[0]) seen.add(rows[0].id);
-          writes.push({ identities, event, expectedRevision: rows[0]?.revision ?? null });
+          writes.push({ identities, event, observedAt: observedAt(event), expectedRevision: rows[0]?.revision ?? null });
         }
         if (!writes.length && conflicts) throw new Error('All candidates require identity reconciliation');
-        if (writes.length) await store.commitBatch(randomUUID(), writes, lease);
+        for (const batch of batches(writes)) {
+          const renewed = await acquireCollectorLease(pool, owner);
+          if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
+          await store.commitBatch(randomUUID(), batch, lease);
+        }
         await pool.query('UPDATE osiris_events.collector SET last_success_at=clock_timestamp(),last_error=$4,source_health=$3 WHERE owner=$1 AND generation=$2', [owner, lease.generation, JSON.stringify([...core.health, ...extra.health]), conflicts ? `${conflicts} candidates skipped: identity reconciliation required` : null]);
         failures = 0; console.log(`Committed ${writes.length} events`);
       } catch (error) {

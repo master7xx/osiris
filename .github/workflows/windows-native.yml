@@ -20,6 +20,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Inventory existing lint debt
+        continue-on-error: true
+        run: node tools/audit-lint.mjs
       - run: npm run doctor
       - run: npm test
       - run: npm run build

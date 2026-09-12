@@ -22,6 +22,11 @@ function checkEvent(event: FusedEvent) {
     || typeof event.description !== 'string' || !event.evidence.every(item => item && typeof item.source === 'string' && typeof item.source_id === 'string')
     || !Number.isFinite(event.priority_score) || !Number.isFinite(event.severity) || !Number.isFinite(Date.parse(event.occurred_at))) throw new Error('Invalid event data');
 }
+function checkHealth(value: unknown): asserts value is EventSourceHealth[] {
+  if (!Array.isArray(value) || value.some(source => !source || typeof source.id !== 'string'
+    || !['healthy', 'partial', 'error'].includes(source.state) || !Number.isFinite(source.source_count)
+    || !Number.isFinite(source.healthy_sources))) throw new Error('Invalid source health');
+}
 function numeric(value: string) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('Invalid event sequence');
@@ -38,6 +43,7 @@ function project(events: ContinuousEvent[], collector: Collector | null, fallbac
   const generated = collector?.last_success_at ?? fallback?.generated_at;
   if (!generated || !Number.isFinite(Date.parse(generated))) throw new Error('Collector has not produced a snapshot');
   const health = collector?.source_health ?? fallback?.source_health ?? [];
+  checkHealth(health);
   const categories: UnifiedEventFeed['categories'] = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
   return { events, total: events.length, mappable: events.filter(isMappable).length,
@@ -57,6 +63,7 @@ export function validateClientCache(value: unknown): EventClientCache | null {
     if (cache.version !== 1 || !['snapshot', 'durable'].includes(cache.mode) || !Number.isFinite(cache.savedAt)
       || !Array.isArray(cache.feed.events) || !Array.isArray(cache.feed.source_health) || !Number.isFinite(Date.parse(cache.feed.generated_at))
       || cache.mode === 'durable' && (typeof cache.cursor !== 'string' || !cache.cursor.length)) return null;
+    checkHealth(cache.feed.source_health);
     cache.feed.events.forEach(checkEvent); return cache;
   } catch { return null; }
 }
