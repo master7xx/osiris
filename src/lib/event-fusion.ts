@@ -157,6 +157,8 @@ export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   const urlsA = evidenceUrls(a);
   if (b.evidence.some(item => item.url && urlsA.has(item.url))) return true;
 
+  if (a.evidence.some(e => e.source_id === 'noaa-nws') && b.evidence.some(e => e.source_id === 'noaa-nws')) return false;
+
   const timeDelta = Math.abs(toMs(a.occurred_at) - toMs(b.occurred_at));
   if (!Number.isFinite(timeDelta) || timeDelta > 8 * 60 * 60_000) return false;
 

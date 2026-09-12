@@ -501,3 +501,23 @@ Distinct URLs are not merged merely because titles look alike. Place matching
 uses word boundaries to avoid matching Aden inside unrelated words; Leipzig is
 recognized explicitly. Existing persisted location metadata is corrected by a
 subsequent successful source refresh, not a database rewrite.
+
+### NOAA / NWS warning adapter
+
+The shared collector and snapshot feed now ingest NOAA/NWS active U.S. warnings
+through the same fetch helper used by `/api/weather`. No internal HTTP calls or
+browser database are added. Official source links, CAP message IDs, descriptions
+and instructions are retained. Flood warnings use `flood`; other warnings use
+`weather` (a fire-weather warning is not a detected wildfire). Test/exercise and
+cancellation messages, malformed timestamps and already expired warnings are
+excluded. Distinct NWS message IDs do not fuzzy-merge with one another.
+
+Only supplied Point geometry qualifies for a precise map marker. Polygon area
+representatives have lower location confidence; warnings without geometry remain
+in the list. `expires:` metadata hides expired warnings from the shared client
+view even offline, while server history is retained. CAP update/cancellation
+lineage and early cancellation tombstones are not yet implemented; an absent
+warning can remain cached until its declared expiry. NOAA SWPC space-weather
+streams remain separate and are not part of this adapter.
+
+Protocol reference: [NWS API documentation](https://www.weather.gov/documentation/services-web-api).

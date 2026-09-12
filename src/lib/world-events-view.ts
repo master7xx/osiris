@@ -25,7 +25,8 @@ export function safeEventUrl(value: string) {
 /** One projection shared by the cards, markers and category summary. */
 export function projectWorldEvents(events: ContinuousEvent[], filters: EventFilters, now: number) {
   const active = deduplicateReports(events).filter(event => now - Date.parse(event.last_observed_at) <= 48 * 3600000);
-  const matching = filterWorldEvents(active, filters).sort((a, b) => b.priority_score - a.priority_score);
+  const current = active.filter(event => !(event.evidence.length > 0 && event.evidence.every(item => item.source_id === 'noaa-nws') && event.tags?.some(tag => tag.startsWith('expires:') && Date.parse(tag.slice(8)) <= now)));
+  const matching = filterWorldEvents(current, filters).sort((a, b) => b.priority_score - a.priority_score);
   const visible = matching.slice(0, 300);
   const sources = new Map(visible.flatMap(event => event.evidence.map(item => [item.source_id, item] as const)));
   return { events: visible, matching: matching.length, sources: [...sources.values()] };

@@ -1,3 +1,4 @@
+import { fetchNwsAlerts, getRepresentativePoint } from '@/lib/nws-alerts';
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
 
@@ -46,39 +47,6 @@ type EonetEvent = {
 
 type EonetResponse = {
   events?: EonetEvent[];
-};
-
-type NwsGeometry =
-  | {
-      type: 'Point';
-      coordinates: number[];
-    }
-  | {
-      type: 'Polygon';
-      coordinates?: number[][][];
-    }
-  | {
-      type: 'MultiPolygon';
-      coordinates?: number[][][][];
-    };
-
-type NwsFeature = {
-  geometry?: NwsGeometry | null;
-  properties?: {
-    '@id'?: string;
-    id?: string;
-    headline?: string;
-    event?: string;
-    severity?: string;
-    effective?: string;
-    sent?: string;
-    expires?: string;
-    areaDesc?: string;
-  };
-};
-
-type NwsResponse = {
-  features?: NwsFeature[];
 };
 
 // GDACS event types we surface here. EQ (earthquakes) and WF (wildfires) are already
@@ -149,13 +117,7 @@ export async function GET() {
       stealthFetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100', {
         signal: AbortSignal.timeout(10000),
       }),
-      fetch('https://api.weather.gov/alerts/active?status=actual&message_type=alert', {
-        headers: {
-          Accept: 'application/geo+json',
-          'User-Agent': 'OSIRIS Severe Weather Layer',
-        },
-        signal: AbortSignal.timeout(10000),
-      }),
+      fetchNwsAlerts(),
       stealthFetch('https://www.gdacs.org/xml/rss.xml', {
         signal: AbortSignal.timeout(10000),
       }),
@@ -219,9 +181,9 @@ export async function GET() {
       }
     }
 
-    if (nwsRes.status === 'fulfilled' && nwsRes.value.ok) {
+    if (nwsRes.status === 'fulfilled') {
       try {
-        const data = (await nwsRes.value.json()) as NwsResponse;
+        const data = nwsRes.value;
         providerSucceeded = true;
 
         for (const feature of data.features || []) {
@@ -285,41 +247,4 @@ function normalizeNwsSeverity(severity?: string): Severity {
     default:
       return 'low';
   }
-}
-
-function getRepresentativePoint(geometry?: NwsGeometry | null) {
-  if (!geometry) return null;
-
-  if (geometry.type === 'Point') {
-    const [lng, lat] = geometry.coordinates;
-    return { lat, lng };
-  }
-
-  if (geometry.type === 'Polygon') {
-    return averageCoordinates(geometry.coordinates?.[0]);
-  }
-
-  if (geometry.type === 'MultiPolygon') {
-    return averageCoordinates(geometry.coordinates?.[0]?.[0]);
-  }
-
-  return null;
-}
-
-function averageCoordinates(coords?: number[][]) {
-  if (!coords || coords.length === 0) return null;
-
-  const totals = coords.reduce(
-    (acc, coord) => {
-      acc.lng += coord[0];
-      acc.lat += coord[1];
-      return acc;
-    },
-    { lat: 0, lng: 0 }
-  );
-
-  return {
-    lat: totals.lat / coords.length,
-    lng: totals.lng / coords.length,
-  };
 }
