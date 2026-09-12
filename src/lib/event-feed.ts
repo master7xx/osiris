@@ -54,7 +54,9 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
     throw new Error('all unified event sources unavailable');
   }
 
-  const fused = fuseEvents([...core.events, ...supplemental.events], { now, limit: 300 });
+  const signals = [...core.events, ...supplemental.events];
+  // The display limit belongs after Category filtering, never before caching.
+  const fused = fuseEvents(signals, { now, limit: signals.length });
   const { events, cursor } = applyEventLedger(fused, now);
   const categories: Partial<Record<EventCategory, number>> = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
@@ -79,6 +81,10 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
 }
 
 export async function getUnifiedEventFeed(options: { now?: number; force?: boolean } = {}): Promise<UnifiedEventFeed> {
+  if (process.env.EVENT_READ_MODE === 'durable') {
+    const { readDurableUnifiedFeed } = await import('./durable-event-feed');
+    return readDurableUnifiedFeed();
+  }
   const state = cache();
   const now = options.now ?? Date.now();
   if (!options.force && state.value && now < state.expires_at) return structuredClone(state.value);

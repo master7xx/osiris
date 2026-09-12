@@ -58,3 +58,35 @@
 .dashboard-navigation[hidden] { display: none; }
 .dashboard-shell[data-navigation='hidden'] .dashboard-workspace { left: 0; }
 .dashboard-navigation-content button > span:not([role='presentation']) { font-size: 12px; line-height: 1.4; }
+
+/* Camera dialogs belong to the usable map area, not the browser viewport. */
+.dashboard-workspace > .camera-viewer {
+  position: absolute;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+}
+.dashboard-workspace > .camera-viewer[data-expanded='false'] {
+  left: auto;
+  right: 16px;
+  bottom: 32px;
+  width: min(480px, calc(100% - 32px));
+}
+.dashboard-workspace > .camera-viewer[data-expanded='true'] {
+  inset: 16px 16px 32px;
+}
+@media (max-width: 1023px) {
+  /* At narrow desktop widths the news dock overlays the workspace. */
+  .dashboard-shell[data-news='open'] .dashboard-workspace > .camera-viewer {
+    right: calc(var(--shell-news) + 16px);
+    max-width: calc(100% - var(--shell-news) - 32px);
+  }
+}
+
+.dashboard-panel-toggle { width:auto; padding:0 9px; gap:7px; border:1px solid var(--shell-border); font:12px var(--font-hud); }
+.dashboard-reopen { position:absolute; top:112px; z-index:460; display:flex; align-items:center; gap:6px; padding:10px 8px; border:1px solid #287394; background:#092638; color:#72e3ff; cursor:pointer; font:12px var(--font-hud); box-shadow:0 2px 12px #0008; }
+.dashboard-reopen svg { width:18px; height:18px; }
+.dashboard-reopen-left { left:0; border-radius:0 5px 5px 0; }
+.dashboard-reopen-right { right:0; border-radius:5px 0 0 5px; }
+.dashboard-reopen:hover { background:#16455d; }
+@media (max-width: 1100px) { .dashboard-header-status { min-width:0; overflow:hidden; } }

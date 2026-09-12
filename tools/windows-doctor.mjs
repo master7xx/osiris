@@ -1,10 +1,11 @@
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 
-const major = Number(process.versions.node.split('.')[0]);
+const [major, minor] = process.versions.node.split('.').map(Number);
+const supported = (major === 22 && minor >= 12) || major === 24 || major >= 26;
 const checks = [
   ['platform', process.platform === 'win32' ? 'Windows native' : process.platform, true],
-  ['Node.js', process.version, major >= 20],
+  ['Node.js', process.version, supported],
 ];
 
 try {

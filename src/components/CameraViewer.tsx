@@ -166,7 +166,8 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.3, type: "spring", bounce: 0 }}
-          className={`fixed z-[500] ${
+          data-expanded={fullscreen}
+          className={`camera-viewer fixed z-[500] ${
             fullscreen 
               ? 'inset-2 md:inset-4' 
               : 'bottom-[70px] left-2 right-2 md:bottom-6 md:right-6 md:left-auto md:w-[480px]'
@@ -344,7 +345,7 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
               <div className="absolute top-3 left-3 flex items-center gap-2 bg-black/80 border border-[var(--gold-primary)]/50 px-2 py-1 shadow-[0_0_10px_rgba(0,0,0,0.8)]">
                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_#ef4444]" />
                 <span className="text-[9px] font-mono text-white tracking-[0.2em]">
-                  {watchLiveUrl ? 'SNAPSHOT' : streamType === 'jpg' ? 'LIVE SAT-LINK' : 'LIVE FEED'}
+                  {watchLiveUrl || streamType === 'jpg' ? 'SOURCE SNAPSHOT' : 'SOURCE FEED'}
                 </span>
               </div>
             )}
@@ -386,7 +387,7 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
                   <span className="text-[9px] text-[var(--text-muted)] font-mono tracking-widest">STATUS</span>
                   {/* Nothing is being received locally for an external feed — don't claim otherwise. */}
                   <span className={`text-[9px] font-mono tracking-widest ${externalOnly ? 'text-[var(--gold-primary)]' : 'text-[var(--alert-green)]'}`}>
-                    {view === 'offline' ? (gone ? 'REMOVED BY SOURCE' : 'OFF AIR AT SOURCE') : watchLiveUrl ? 'LIVE VIDEO AT SOURCE' : externalOnly ? 'HOSTED OFF-PLATFORM' : 'ACTIVE / RECORDING'}
+                    {view === 'offline' ? (gone ? 'REMOVED BY SOURCE' : 'OFF AIR AT SOURCE') : watchLiveUrl ? 'LIVE VIDEO AT SOURCE' : externalOnly ? 'HOSTED OFF-PLATFORM' : error ? 'LOAD FAILED' : loading ? 'LOADING' : streamType === 'jpg' ? 'IMAGE LOADED · UNVERIFIED' : 'SOURCE CONTENT LOADED'}
                   </span>
                 </div>
               </div>

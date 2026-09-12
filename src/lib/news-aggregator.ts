@@ -1,3 +1,5 @@
+import { canonicalReportUrl } from './event-identity';
+import { isNewsDigest } from './event-text';
 import Parser from 'rss-parser';
 import {
   getSourceHealthSnapshot,
@@ -96,6 +98,10 @@ const SOURCES: SourceDef[] = [
   { id: 'liveuamap', name: 'Liveuamap', kind: 'telegram', tier: 'osint', channel: 'liveuamap', independent: false, weight: 0.85, maxItems: 8 },
 ];
 
+export function newsSourceTransport(name: string): 'rss' | 'telegram' | undefined {
+  return SOURCES.find(source => source.name === name)?.kind;
+}
+
 const RISK_KEYWORDS = [
   'war', 'missile', 'strike', 'attack', 'crisis', 'military', 'conflict', 'nuclear',
   'invasion', 'bomb', 'drone', 'weapon', 'sanctions', 'ceasefire', 'escalation',
@@ -151,6 +157,7 @@ const PLACES: PlaceDef[] = [
   { keys: ['new york city', 'new york', 'нью-йорк'], label: 'New York, US', coords: [40.7128, -74.006], confidence: 0.96 },
   { keys: ['london', 'лондон'], label: 'London, UK', coords: [51.5072, -0.1276], confidence: 0.98 },
   { keys: ['paris', 'париж'], label: 'Paris, France', coords: [48.8566, 2.3522], confidence: 0.98 },
+  { keys: ['leipzig', 'лейпциг'], label: 'Leipzig, Germany', coords: [51.3397, 12.3731], confidence: 0.98 },
   { keys: ['berlin', 'берлин'], label: 'Berlin, Germany', coords: [52.52, 13.405], confidence: 0.98 },
   { keys: ['brussels', 'брюссель'], label: 'Brussels, Belgium', coords: [50.8503, 4.3517], confidence: 0.98 },
   { keys: ['warsaw', 'варшава'], label: 'Warsaw, Poland', coords: [52.2297, 21.0122], confidence: 0.98 },
@@ -164,6 +171,7 @@ const parser = new Parser({ timeout: 6500 });
 function decodeHtml(value: string): string {
   return value
     .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -171,7 +179,9 @@ function decodeHtml(value: string): string {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -209,7 +219,11 @@ function scoreRisk(text: string): number {
 export function locateArticle(text: string): { coords: [number, number] | null; location?: string; confidence: number } {
   const lower = text.toLowerCase();
   for (const place of PLACES) {
-    if (place.keys.some(key => lower.includes(key))) return { coords: place.coords, location: place.label, confidence: place.confidence };
+    if (place.keys.some(key => {
+      const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ending = /[а-яё]/iu.test(key) ? '[а-яё]{0,3}' : '';
+      return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}${ending}(?![\\p{L}\\p{N}])`, 'u').test(lower);
+    })) return { coords: place.coords, location: place.label, confidence: place.confidence };
   }
   return { coords: null, confidence: 0 };
 }
@@ -355,12 +369,13 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
   const clusters: Array<{ primary: typeof candidates[number]; articles: typeof candidates }> = [];
   for (const article of candidates) {
     const existing = clusters.find(cluster => Math.abs(cluster.primary.time - article.time) <= 6 * 60 * 60_000
+      && isNewsDigest(cluster.primary.title, cluster.primary.description) === isNewsDigest(article.title, article.description)
       && similarity(cluster.primary.title, article.title) >= 0.58);
     if (existing) existing.articles.push(article);
     else clusters.push({ primary: article, articles: [article] });
   }
 
-  return clusters.slice(0, 80).map((cluster, index) => {
+  return clusters.slice(0, 80).map((cluster) => {
     const primary = [...cluster.articles].sort((a, b) => b.sourceWeight - a.sourceWeight || b.time - a.time)[0];
     const evidenceBySource = new Map<string, typeof primary>();
     for (const article of cluster.articles) {
@@ -378,7 +393,7 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
     const confidence: NewsItem['confidence'] = confidenceData.score >= 0.78 ? 'high' : confidenceData.score >= 0.56 ? 'medium' : 'low';
     const ageMinutes = Math.max(0, Math.round((now - primary.time) / 60_000));
     return {
-      id: `${primary.time.toString(36)}-${index}-${titleFingerprint(primary.title).values().next().value || 'news'}`,
+      id: encodeURIComponent(JSON.stringify([primary.sourceId, primary.link ? canonicalReportUrl(primary.link) : [primary.published, primary.title]])),
       title: primary.title,
       description: primary.description,
       link: primary.link,

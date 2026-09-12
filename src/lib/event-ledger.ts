@@ -1,3 +1,4 @@
+import { isNewsDigest } from './event-text';
 import { eventTitleSimilarity, type FusedEvent } from './event-fusion';
 
 export type EventLifecycle = 'new' | 'updated' | 'ongoing';
@@ -60,6 +61,7 @@ function urlOverlap(a: FusedEvent, b: ContinuousEvent) {
 
 function matches(a: FusedEvent, b: ContinuousEvent) {
   if (a.id === b.fused_id) return true;
+  if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (urlOverlap(a, b)) return true;
 
   const timeDelta = Math.abs(toMs(a.occurred_at) - toMs(b.occurred_at));

@@ -1,0 +1,38 @@
+# Optional override: docker compose -f docker-compose.yml -f compose.events.yml up --build -d
+services:
+  event-db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: osiris
+      POSTGRES_PASSWORD: ${EVENT_DB_PASSWORD:?Set EVENT_DB_PASSWORD}
+      POSTGRES_DB: osiris_events
+    volumes:
+      - event-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U osiris -d osiris_events"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+  event-collector:
+    env_file:
+      - path: .env
+        required: false
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    environment:
+      EVENT_DATABASE_URL: postgres://osiris:${EVENT_DB_PASSWORD}@event-db:5432/osiris_events
+    depends_on:
+      event-db:
+        condition: service_healthy
+    restart: unless-stopped
+  osiris:
+    environment:
+      EVENT_DATABASE_URL: postgres://osiris:${EVENT_DB_PASSWORD}@event-db:5432/osiris_events
+      EVENT_READ_MODE: durable
+    depends_on:
+      event-db:
+        condition: service_healthy
+volumes:
+  event-data:

@@ -106,7 +106,7 @@ const LAYER_GROUPS: LayerGroupDef[] = [
   },
   {
     label: 'THREAT',
-    fullLabel: 'THREATS & INTEL',
+    fullLabel: 'Threat layers',
     icon: AlertTriangle,
     layers: [
       { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },

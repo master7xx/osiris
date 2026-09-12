@@ -12,7 +12,8 @@ Windows development and a Docker standalone build.
 
 [Issues](https://github.com/master7xx/osiris/issues) ·
 [Pull requests](https://github.com/master7xx/osiris/pulls) ·
-[Event architecture audit](docs/unified-event-audit.md)
+[Event architecture audit](docs/unified-event-audit.md) ·
+[Durable-store architecture and rollout](docs/architecture/durable-events.md)
 
 ## Current capabilities
 
@@ -36,8 +37,9 @@ separate from the article-based world-event feed.
 
 ## Quick start: native Windows
 
-Use Node.js 22 to match Windows CI and the Docker image. `package.json` declares
-Node.js 20 or newer. Install Git and use a browser with WebGL support.
+Use Node.js 22.12 or newer within the Node 22 line to match Windows CI and the
+Docker image; Node 24 is also supported. The test toolchain no longer supports
+Node 20. Install Git and use a browser with WebGL2 support (required by MapLibre 6).
 
 From PowerShell:
 
@@ -71,7 +73,9 @@ See [WINDOWS.md](WINDOWS.md) for native development and debugging details.
 
 The desktop dashboard now uses a docked shell with a compact UTC/API header,
 an expandable layer navigation, a persistent location search and a news panel
-that can be hidden. The map resizes when panel widths change. Existing map tools
+that can be hidden. The map resizes when panel widths change. The selected camera viewer stays
+inside the available map area, including when the event panel is open; its
+expanded view uses the same bounds. Existing map tools
 remain on the right-hand tool strip; layer keys, URL restoration and Style Studio
 settings are retained. The `L` shortcut still hides/shows the layer navigation.
 
@@ -80,10 +84,28 @@ Below 1024 px, side panels overlay the map and opening one closes the other.
 The existing phone layout remains in use. Panel close buttons restore focus to
 the corresponding header control; Escape closes a focused side panel.
 
-This is the first interface implementation stage. The right panel still uses
-`IntelFeed` and `/api/news`; it has not yet been migrated to the shared event
-snapshot or synchronized event selection. DEBUG offers a SIZE button that cycles between its near-full-screen view, half
-and one-third of the screen height, with compact views anchored at the bottom.
+The right panel and phone event panel now use one `/api/events?limit=300`
+snapshot shared with map markers. Category, minimum severity, confidence and
+located-only filters apply to both views. Category choices stay stable across
+refreshes; a category with no events shows an empty list, and changing filters
+returns the list to its beginning. Clicking a card locates a reliably
+positioned event; clicking its marker selects the card and opens the panel.
+Unlocated events stay in the list. Expanded cards show supporting sources;
+severity and corroboration confidence remain separate fields. All sources use the
+same card typography (13 px message text, 11 px metadata). Severity badges show
+low (<35), medium (35–69) and high (70+) with different icons and text. Source
+badges distinguish Telegram, BBC, broadcasters, editorial, official and sensor
+sources; mixed-source events retain a badge for each source.
+
+The client synchronizes every 90 seconds while visible, on visibility return and
+on network reconnection. In durable mode it loads one bootstrap and then revision
+pages; default mode continues to fetch full snapshots. Failed refreshes retain the last snapshot; partial source coverage and
+snapshots older than three minutes are labelled. Selection and filters survive
+refreshes and panel close/reopen within the page. The latest-state API remains
+capped at 300 events and does not provide durable history.
+
+DEBUG offers a SIZE button cycling between near-full-screen, half and one-third
+height, with compact views anchored at the bottom.
 See [shell implementation notes](docs/dashboard-shell.md) for the changes and
 remaining browser validation, and [PR #31](https://github.com/master7xx/osiris/pull/31)
 for the proposed full interface plan.
@@ -149,14 +171,15 @@ evidence can produce `confirmed` without a second report.
 - Partial source failures allow healthy sources to contribute. When a refresh
   fails entirely, concurrent readers receive the last successful snapshot if
   one exists, with a short retry cooldown. Its generation time remains old.
-- The world-event marker component polls every 90 seconds and requires coordinates
+- The shared world-event client polls every 90 seconds and requires coordinates
   with sufficient location confidence. Events without usable coordinates can
   remain in the API feed.
 
-**There is no durable event store or independent background collector yet.**
-Collection is request-driven. Restarts reset identity state and cursors; separate
-workers have separate state. The feed is capped at 300 fused events. Evidence or
-events absent from a later collection are not guaranteed to remain visible.
+**Default mode is request-driven and process-local.** Restarts reset its
+identity state and cursors; separate workers have separate state. Its snapshot is
+capped at 300 fused events and may lose events absent from later collections.
+The [optional durable pipeline](#optional-durable-event-pipeline) adds PostgreSQL
+history and an independent collector through explicit configuration.
 
 ## Event API
 
@@ -283,12 +306,14 @@ are `npx tsc --noEmit` and `npm run lint`.
 
 ## Next work and documentation maintenance
 
-The next architectural steps are a durable event/revision store with monotonic
-cursors, background ingestion, remaining report adapters (including NWS, NOAA and
-cyber advisories), and migration of additional consumers to shared ingestion.
-These are planned work, not completed capabilities. The
-[architecture audit](docs/unified-event-audit.md) records the source inventory,
-limitations and acceptance criteria.
+The next steps are target-host recovery verification, history retention and
+tombstones, independently scheduled sources, replay-based UI updates, remaining
+report adapters (NWS, NOAA and cyber advisories), and further consumer convergence.
+The PostgreSQL writer, readers and collector are implemented as an optional mode;
+production rollout and the remaining work are not claimed complete. The
+[architecture audit](docs/unified-event-audit.md) records the original baseline,
+and the [durable contract](docs/architecture/durable-events.md) tracks current
+implementation limits and acceptance criteria.
 
 Update this README in the same PR as changes to behavior, APIs, source coverage,
 configuration, setup or deployment. Keep implemented behavior separate from plans,
@@ -300,3 +325,179 @@ its instructions change. Repository guidance is recorded in [AGENTS.md](AGENTS.m
 MIT; see [LICENSE](LICENSE). This repository continues work from
 [simplifaisoul/osiris](https://github.com/simplifaisoul/osiris).
 Provider data, imagery and streams retain their own terms and attribution.
+
+## Optional durable event pipeline
+
+PostgreSQL migrations, transactional writes, bootstrap/replay readers and a
+separately runnable collector are implemented. Default mode remains the existing
+request-driven pipeline. Set `EVENT_READ_MODE=durable` explicitly to make
+`/api/events` and `/api/conflicts` read the database without collecting upstreams.
+A database or collector failure does not silently switch back to live ingestion.
+
+Use PostgreSQL 17, the integration CI target. Create a database, then in PowerShell:
+
+```powershell
+$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
+npm run events:migrate
+npm run events:collect
+```
+
+In a second terminal, in the repository:
+
+```powershell
+$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
+$env:EVENT_READ_MODE = "durable"
+npm run dev
+```
+
+Wait for the collector's first successful commit. Until then, durable reads report
+unavailability. Ctrl+C stops the collector; stored events survive its restart.
+Migrations are transactional and checksum-checked. No timer runs inside Next.js.
+
+- `/api/events/stored` returns all retained current records and a consistent
+  opaque replay cursor. It also exposes the last collector success/error.
+- `/api/events/changes?cursor=TOKEN&limit=100` returns unfiltered immutable revisions,
+  ordered by cursor. Pages retain a fixed upper boundary during concurrent ingest;
+  after the final page the next request starts a new polling boundary.
+- Invalid/expired cursors or an epoch mismatch require bootstrap (HTTP 410).
+- The existing numeric `since` API remains latest-state compatibility only;
+  durable replay uses the separate opaque cursor endpoint.
+
+The collector runs core and supplemental adapters together every ~90 seconds,
+with bounded exponential backoff on failure. Successful raw signals remain for
+48 hours to survive missing-source responses. Database-time leases and fencing
+reject writes from expired owners. Ambiguous identities are skipped and reported
+in collector status. Sources still use existing adapter timeouts; independent
+per-source schedules and automatic fuzzy reconciliation remain future work.
+Historical evidence stays separate from the current event payload, but retained
+signals may still contribute to confidence within the observation window.
+
+For Docker, set a strong URL-safe `EVENT_DB_PASSWORD` (for example a random hex
+string) in `.env`, then:
+
+```bash
+docker compose -f docker-compose.yml -f compose.events.yml up --build -d
+```
+
+The override adds PostgreSQL with a persistent volume and a collector service,
+and enables durable reads in the web service. Existing base Compose prerequisites
+still apply, including its external `umami_default` network. Do not delete the
+`event-data` volume to restart services. Native Windows may use a native or remote
+PostgreSQL installation without Docker. Docker deployment has not been exercised
+in this workspace; verify on the target host before switching production.
+
+Database tests require a **dedicated disposable database ending in `_test`**:
+
+```powershell
+$env:EVENT_TEST_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events_test"
+npm run test:event-store
+```
+
+Tests truncate event-store records in that test database. Ordinary `npm test`
+skips database integration without this variable; CI supplies PostgreSQL.
+
+Remaining limits: bootstrap is a single response; event/revision history has no
+automatic pruning or tombstones yet. The UI uses replay in durable mode and ranked snapshots in default mode. Explicit expiry, per-source schedules, replay-based UI and measured
+host recovery remain rollout work. See the [architecture contract](docs/architecture/durable-events.md).
+
+## Client event cache and synchronization
+
+Authoritative data, revisions and source collection remain on the server.
+The browser keeps a disposable localStorage checkpoint containing events and the
+opaque replay cursor together. On reload it displays that checkpoint as
+`CACHED DATA`/`STALE` until server synchronization succeeds. Failed refreshes
+retain the previous checkpoint. Filters and selection stay in page state.
+
+The cache is scoped to the browser origin, schema-versioned, expires after seven
+days and is capped at roughly 4 MiB of UTF-16 text. Quota failures, blocked storage
+and corrupt data fall back to in-memory operation without breaking live updates.
+Clearing site data removes this cache, not server history.
+
+`/api/events/sync` advertises the server's active mode without exposing database
+configuration. In durable mode the first load uses `/api/events/stored` and later
+polls use `/api/events/changes`. Every page is applied by stable event ID, keeping
+the newest sequence. The client advances its saved cursor only with the matching
+data. HTTP 410 replaces both from a fresh bootstrap. A backlog exceeding 20 pages
+also uses bootstrap. A durable server outage never silently enables request-driven
+source collection. The server sends compact observation/priority metadata with
+final pages so unchanged reports do not disappear merely because they have no new
+revision. The displayed durable view filters out observations older than 48 hours
+and ranks up to 300 matches locally; retained history remains on the server.
+
+Verification: reload after a successful sync, simulate offline, change Category,
+then reconnect. Cached rows should remain usable and clearly labelled; reconnect
+must catch up without duplicate cards. Cursor-reset and interrupted-page behavior
+also have automated tests. There is no cross-tab live synchronization yet; each
+tab owns its poller and persists complete checkpoints independently.
+
+## Comprehensive audit follow-up
+
+The audit updates Next.js, MapLibre, sharp and the test toolchain to versions
+outside the advisory ranges reported for the previous lockfile. MapLibre 6
+requires WebGL2; the older WebGL1 fallback is removed. See
+[the audit report](docs/comprehensive-audit.md) for tested scope and remaining gates.
+
+The durable collector now saves all fused candidates in bounded transactions,
+not only the UI's top 300. Events retain the latest actual upstream observation
+time when stored signals are reprocessed. Ownership is renewed during large
+batches. UI ranking remains capped at 300 events. Multiple transactions can become
+visible before collector health is updated; this is not a whole-cycle atomic snapshot.
+
+Camera image proxy redirects are revalidated against the provider allowlist,
+private-address checks remain enabled, TLS certificates are verified and image
+responses are bounded to 8 MiB. Invalid certificates and non-image responses now
+fail closed. Tile proxy redirects are rejected. Provider compatibility still
+requires a live camera check on the deployment host.
+
+MapLibre workers are served locally from `/vendor/maplibre/`; `predev` and
+`prebuild` copy the worker and its shared module from the locked dependency.
+The scoped Turbopack loader handles MapLibre 6’s dynamic worker URL expression.
+
+Distance and area readouts use consistent English numeric formatting (for
+example `4,200 km` and `12.50 km²`) regardless of operating-system locale.
+
+### Category views and previous reports
+
+WORLD EVENTS filters the complete client checkpoint before applying the 300-card
+display limit. In snapshot mode `/api/events/snapshot` supplies a complete feed;
+durable mode continues to use stored events and cursor synchronization. Switching
+Category reads the existing cache immediately while the normal background refresh
+continues. Previously received snapshot reports stay available for up to 48 hours
+from their last observation and are marked `Cached previous report` when absent
+from the latest response. A new report with the same ID replaces its cached copy.
+
+The category summary and expandable `Sources in this view` follow the visible
+cards and filters. `PARTIAL SOURCES (GLOBAL)` describes collector availability
+across all categories; changing a display filter cannot change that global health.
+All databases remain on the server. Browser cache is disposable and subject to
+the existing storage quota; a large checkpoint can remain memory-only.
+
+Long event cards show a three-line title and six-line description preview.
+`Read full text / Читать полностью` expands the original plain text independently
+of map selection; `Collapse / Свернуть` restores the preview. Paragraphs and
+common digest bullets retain line breaks. Source badges remain outside the preview.
+
+An explicit roundup label plus multiple list items marks a probable digest.
+Such reports are labelled `Digest · Multiple reports` and are not assigned a
+single map position, including when read from an older client cache. They are
+not automatically split into separate incidents; this conservative heuristic is
+not a complete semantic classifier. Ordinary long reports remain individual events.
+
+Camera JPG loading is labelled `SOURCE SNAPSHOT` / `IMAGE LOADED · UNVERIFIED`.
+A successful image request can contain an operator outage placeholder and does
+not prove camera availability or recording. Placeholder-image recognition is
+not implemented; the operator's notice remains visible in the supplied image.
+
+The desktop shell keeps labelled `Layers` and `Events` controls in its header.
+Collapsed or hidden panels also expose an edge button to reopen them. `Events`
+controls WORLD EVENTS / SOURCES; the duplicate `Alerts` toolbar button is removed.
+The left navigation's `Threat layers` group controls map layers, not the event
+feed. Narrow desktop layouts show one expanded side panel at a time.
+
+Event report IDs derive from source and upstream URL rather than position in a
+refresh result. Cached snapshot aliases are reconciled using exact source/URL
+provenance, and the shared card/marker projection also removes old aliases.
+Distinct URLs are not merged merely because titles look alike. Place matching
+uses word boundaries to avoid matching Aden inside unrelated words; Leipzig is
+recognized explicitly. Existing persisted location metadata is corrected by a
+subsequent successful source refresh, not a database rewrite.

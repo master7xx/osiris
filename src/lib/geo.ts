@@ -153,18 +153,19 @@ export function rectToRing(a: LngLat, b: LngLat): number[][] {
   ];
 }
 
+// Match the English readout and fixed decimal point regardless of OS locale.
 /** Compact distance for a readout: metres under 1 km, then km. */
 export function formatDistance(km: number): string {
   if (km < 1) return `${Math.round(km * 1000)} m`;
   if (km < 100) return `${km.toFixed(1)} km`;
-  return `${Math.round(km).toLocaleString()} km`;
+  return `${Math.round(km).toLocaleString('en-US')} km`;
 }
 
 /** Compact area for a readout: m² under a hectare, then km². */
 export function formatArea(km2: number): string {
-  if (km2 < 0.01) return `${Math.round(km2 * 1_000_000).toLocaleString()} m²`;
+  if (km2 < 0.01) return `${Math.round(km2 * 1_000_000).toLocaleString('en-US')} m²`;
   if (km2 < 100) return `${km2.toFixed(2)} km²`;
-  return `${Math.round(km2).toLocaleString()} km²`;
+  return `${Math.round(km2).toLocaleString('en-US')} km²`;
 }
 
 /** 0–360 to a 16-point compass label, for bearing readouts. */

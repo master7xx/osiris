@@ -1,3 +1,4 @@
+import { isNewsDigest } from './event-text';
 export type EventCategory =
   | 'conflict'
   | 'protest'
@@ -17,6 +18,7 @@ export type EventConfidence = 'unconfirmed' | 'corroborating' | 'confirmed';
 export type EventSourceKind = 'editorial' | 'osint' | 'broadcaster' | 'official' | 'sensor' | 'aggregator';
 
 export interface EventEvidence {
+  transport?: 'rss' | 'telegram';
   source_id: string;
   source: string;
   kind: EventSourceKind;
@@ -149,6 +151,7 @@ function evidenceUrls(event: IncomingEvent) {
 }
 
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
+  if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (a.id === b.id) return true;
 
   const urlsA = evidenceUrls(a);
