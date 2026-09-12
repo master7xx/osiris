@@ -1,9 +1,10 @@
-import { fuseEvents, type EventCategory, type FusedEvent } from './event-fusion';
+import { fuseEvents, type EventCategory } from './event-fusion';
+import { applyEventLedger, type ContinuousEvent } from './event-ledger';
 import { collectEventSources, type EventSourceHealth } from './event-sources';
 import { collectSupplementalEventSignals } from './event-signals';
 
 export interface UnifiedEventFeed {
-  events: FusedEvent[];
+  events: ContinuousEvent[];
   total: number;
   mappable: number;
   confirmed: number;
@@ -13,6 +14,10 @@ export interface UnifiedEventFeed {
   source_health: EventSourceHealth[];
   source_count: number;
   healthy_sources: number;
+  cursor: number;
+  new_events: number;
+  updated_events: number;
+  ongoing_events: number;
   generated_at: string;
 }
 
@@ -49,7 +54,8 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
     throw new Error('all unified event sources unavailable');
   }
 
-  const events = fuseEvents([...core.events, ...supplemental.events], { now, limit: 300 });
+  const fused = fuseEvents([...core.events, ...supplemental.events], { now, limit: 300 });
+  const { events, cursor } = applyEventLedger(fused, now);
   const categories: Partial<Record<EventCategory, number>> = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
 
@@ -64,6 +70,10 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
     source_health: [...core.health, ...supplemental.health],
     source_count: core.source_count + supplemental.source_count,
     healthy_sources: healthySources,
+    cursor,
+    new_events: events.filter(event => event.lifecycle === 'new').length,
+    updated_events: events.filter(event => event.lifecycle === 'updated').length,
+    ongoing_events: events.filter(event => event.lifecycle === 'ongoing').length,
     generated_at: new Date(now).toISOString(),
   };
 }
