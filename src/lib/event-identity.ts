@@ -20,7 +20,7 @@ export function canonicalReportUrl(value: string): string {
 /** Exact report provenance only; title similarity must not collapse incidents. */
 export function reportIdentity(event: ContinuousEvent): string {
   const evidence = event.evidence ?? [];
-  const urls = evidence.filter(item => item.url).map(item => [item.source_id, canonicalReportUrl(item.url!)]);
+  const urls = evidence.filter(item => item.upstream_id || item.url).map(item => [item.source_id, item.upstream_id ? `upstream:${item.upstream_id}` : canonicalReportUrl(item.url!)]);
   if (urls.length) return JSON.stringify([urls.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
   if (!event.title || !event.occurred_at || (!evidence.length && !event.sources?.length)) return `id:${event.id}`;
   return JSON.stringify([event.category, event.occurred_at, event.title, event.description,

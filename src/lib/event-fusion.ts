@@ -1,3 +1,4 @@
+import { explicitReportMatch } from './upstream-report';
 import { isNewsDigest } from './event-text';
 export type EventCategory =
   | 'conflict'
@@ -24,6 +25,8 @@ export interface EventEvidence {
   kind: EventSourceKind;
   independent: boolean;
   weight: number;
+  /** Provider-scoped identity when the URL names a collection. */
+  upstream_id?: string;
   url?: string;
   published_at?: string;
 }
@@ -159,6 +162,8 @@ export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   if (Boolean(a.withdrawn) !== Boolean(b.withdrawn)) return false;
   if (a.id === b.id) return true;
 
+  const explicit = explicitReportMatch(a.evidence, b.evidence);
+  if (explicit !== undefined) return explicit;
   const urlsA = evidenceUrls(a);
   if (b.evidence.some(item => item.url && urlsA.has(item.url))) return true;
 
@@ -218,7 +223,7 @@ function fuseCluster(items: IncomingEvent[], now: number): FusedEvent {
   const evidenceMap = new Map<string, EventEvidence>();
   for (const item of items) {
     for (const evidence of item.evidence) {
-      const key = `${evidence.source_id}|${evidence.url || evidence.source}`;
+      const key = `${evidence.source_id}|${evidence.upstream_id || evidence.url || evidence.source}`;
       const previous = evidenceMap.get(key);
       if (!previous || evidence.weight > previous.weight) evidenceMap.set(key, evidence);
     }

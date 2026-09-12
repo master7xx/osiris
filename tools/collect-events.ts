@@ -1,4 +1,4 @@
-import { batches, observationIndex } from '../src/lib/collector-observations';
+import { batches, observationIndex, collectorIdentities } from '../src/lib/collector-observations';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -56,8 +56,7 @@ try {
             const renewed = await acquireCollectorLease(pool, owner);
             if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
           }
-          const identities = event.evidence.filter(item => item.url).map(item => ({ sourceId: item.source_id, upstreamId: item.url! }));
-          if (!identities.length) identities.push({ sourceId: 'fusion', upstreamId: event.id });
+          const identities = collectorIdentities(event);
           const rows = (await pool.query(`SELECT DISTINCT e.id,e.revision FROM osiris_events.events e JOIN osiris_events.identities i ON i.event_id=e.id
             WHERE (i.source_id,i.upstream_id) IN (SELECT * FROM unnest($1::text[],$2::text[]))`, [identities.map(id => id.sourceId), identities.map(id => id.upstreamId)])).rows;
           if (rows.length > 1 || rows[0] && seen.has(rows[0].id)) { conflicts++; continue; }
