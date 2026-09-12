@@ -34,7 +34,7 @@ function useWorldEventsState(onMapSelect: () => void) {
       writeEventCache(next);
       setMode(next.mode); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(false);
     } catch (err) {
-      if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(true); }
+      if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(Boolean(checkpoint.current)); }
     } finally {
       clearTimeout(timeout);
       if (request.current === controller) { request.current = null; setLoading(false); setNow(Date.now()); }
