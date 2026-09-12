@@ -259,6 +259,11 @@ are `npx tsc --noEmit` and `npm run lint`.
 
 ## Next work and documentation maintenance
 
+A proposed interface refresh based on the user-provided visual reference is
+documented in the [interface plan](docs/interface-reference-plan.md) (Russian).
+It maps existing tools to the proposed navigation and separates shell, event-feed
+and diagnostics work. This interface plan is not yet implemented.
+
 The next architectural steps are a durable event/revision store with monotonic
 cursors, background ingestion, remaining report adapters (including NWS, NOAA and
 cyber advisories), and migration of additional consumers to shared ingestion.
