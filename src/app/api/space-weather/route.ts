@@ -1,3 +1,4 @@
+import { fetchSwpcAlerts } from '@/lib/swpc-alerts';
 import { NextResponse } from 'next/server';
 
 /**
@@ -20,7 +21,7 @@ export async function GET() {
     const [kpRes, alertsRes, flareRes] = await Promise.allSettled([
       fetchJson(`${NOAA_BASE}/json/planetary_k_index_1m.json`),
       // NOAA publishes current Alerts, Watches and Warnings under /products.
-      fetchJson(`${NOAA_BASE}/products/alerts.json`),
+      fetchSwpcAlerts(),
       fetchJson(`${NOAA_BASE}/json/goes/primary/xray-flares-latest.json`),
     ]);
 

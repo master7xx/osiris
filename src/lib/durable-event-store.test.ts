@@ -5,6 +5,7 @@ import { migrateEvents } from '../../tools/migrate-events.mjs';
 import { DurableEventStore, type EventWrite } from './durable-event-store';
 import { acquireCollectorLease } from './event-collector-lease';
 import { DurableEventReader } from './durable-event-reader';
+import { collectorIdentities } from './collector-observations';
 import type { FusedEvent } from './event-fusion';
 
 const databaseUrl = process.env.EVENT_TEST_DATABASE_URL;
@@ -33,6 +34,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
+
+  it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
+    const bulletin = (serial: string, description = 'Original') => event({
+      id: `swpc-${serial}`, description,
+      evidence: [{ source_id: 'noaa-swpc', source: 'NOAA / SWPC', kind: 'official', independent: true,
+        weight: 1.2, upstream_id: serial, url: 'https://services.swpc.noaa.gov/products/alerts.json' }],
+    });
+    const a = bulletin('10'); const b = bulletin('11');
+    await store.commitBatch(randomUUID(), [a, b].map(item => ({ event: item, identities: collectorIdentities(item), expectedRevision: null })));
+    const correction = bulletin('10', 'Corrected');
+    await store.commitBatch(randomUUID(), [{ event: correction, identities: collectorIdentities(correction), expectedRevision: '1' }]);
+    const snapshot = await new DurableEventReader(pool).bootstrap();
+    expect(snapshot.events).toHaveLength(2);
+    expect(snapshot.events.find(row => row.payload.evidence[0].upstream_id === '10')?.payload.description).toBe('Corrected');
+    expect(snapshot.events.find(row => row.payload.evidence[0].upstream_id === '11')?.revision).toBe('1');
+  });
 
   it('persists cancellation and supersession metadata as a material revision', async () => {
     await store.commitBatch(randomUUID(), [write()]);

@@ -23,7 +23,8 @@ function checkEvent(event: FusedEvent) {
   if (event?.withdrawn !== undefined && typeof event.withdrawn !== 'boolean') throw new Error('Invalid event lifecycle');
   if (!event || typeof event.id !== 'string' || typeof event.title !== 'string' || !Array.isArray(event.evidence)
     || !Array.isArray(event.sources) || !event.sources.every(source => typeof source === 'string')
-    || typeof event.description !== 'string' || !event.evidence.every(item => item && typeof item.source === 'string' && typeof item.source_id === 'string')
+    || typeof event.description !== 'string' || !event.evidence.every(item => item && typeof item.source === 'string' && typeof item.source_id === 'string'
+      && (item.upstream_id === undefined || typeof item.upstream_id === 'string' && item.upstream_id.length > 0))
     || !Number.isFinite(event.priority_score) || !Number.isFinite(event.severity) || !Number.isFinite(Date.parse(event.occurred_at))) throw new Error('Invalid event data');
 }
 function checkHealth(value: unknown): asserts value is EventSourceHealth[] {

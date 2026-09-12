@@ -308,7 +308,7 @@ are `npx tsc --noEmit` and `npm run lint`.
 
 The next steps are target-host recovery verification, history retention and
 tombstones, independently scheduled sources, replay-based UI updates, remaining
-report adapters (NWS, NOAA and cyber advisories), and further consumer convergence.
+report adapters (cyber advisories and other providers), and further consumer convergence.
 The PostgreSQL writer, readers and collector are implemented as an optional mode;
 production rollout and the remaining work are not claimed complete. The
 [architecture audit](docs/unified-event-audit.md) records the original baseline,
@@ -520,8 +520,7 @@ in the current feed, including restored client caches. Active warnings plus the
 last 48 hours of messages are fetched with bounded pagination and a shared
 deadline per collection. Failure of either collection preserves the previous
 checkpoint rather than publishing an incomplete refresh. An absent warning
-without an explicit cancellation remains until its declared expiry. NOAA SWPC space-weather
-streams remain separate and are not part of this adapter.
+without an explicit cancellation remains until its declared expiry. NOAA SWPC space-weather bulletins use their own adapter (below).
 
 Protocol reference: [NWS API documentation](https://www.weather.gov/documentation/services-web-api).
 
@@ -531,3 +530,23 @@ before Category filtering and the display limit; cancelled reports remain in
 server history. Old clients must refresh to use these semantics. Outages longer
 than the 48-hour replay window require a fresh snapshot; this is not a guarantee
 of full historical CAP-chain reconstruction.
+
+
+### NOAA / SWPC space-weather bulletins
+
+The common feed ingests the last seven days of SWPC bulletins in `weather`, tagged
+`space-weather`, with official provenance and no invented ground coordinates.
+The legacy `/api/space-weather` endpoint shares the alerts fetcher; Kp and flare
+products remain in that endpoint. Source health reports failed/invalid collections.
+NOAA issue timestamps are interpreted as UTC. Message code plus serial number
+identifies a report (issue timestamp is the fallback); the latest correction wins.
+Explicit `evidence.upstream_id` takes precedence over collection URLs in fusion,
+server collection and client deduplication. Distinct bulletins never fuzzy-merge.
+
+This is bulletin history, not a registry of currently effective warnings:
+cancellations remain clearly titled notices; they do not remove earlier bulletins.
+Severity maps explicit NOAA G/R/S scale levels to OSIRIS scores, with a neutral
+fallback for unscaled messages. The global stream has no map markers. Existing
+clients must refresh; durable installations must update their server collector.
+
+Source: [NOAA SWPC alerts feed](https://services.swpc.noaa.gov/products/alerts.json).

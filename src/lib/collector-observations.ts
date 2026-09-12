@@ -1,5 +1,5 @@
 import type { EventEvidence, FusedEvent, IncomingEvent } from './event-fusion';
-const key = (evidence: EventEvidence) => JSON.stringify([evidence.source_id, evidence.url ?? null, evidence.published_at ?? null]);
+const key = (evidence: EventEvidence) => JSON.stringify([evidence.source_id, evidence.upstream_id ?? null, evidence.url ?? null, evidence.published_at ?? null]);
 /** Last actual upstream observation, never the time a retained signal was reprocessed. */
 export function observationIndex(rows: { payload: IncomingEvent; observed_at: string | Date }[]) {
   const times = new Map<string, number>();
@@ -18,4 +18,11 @@ export function batches<T>(items: T[], size = 300): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
   return result;
+}
+
+/** Collection URLs are provenance, not unique report keys. */
+export function collectorIdentities(event: FusedEvent) {
+  const identities = event.evidence.filter(item => item.upstream_id || item.url)
+    .map(item => ({ sourceId: item.source_id, upstreamId: item.upstream_id || item.url! }));
+  return identities.length ? identities : [{ sourceId: 'fusion', upstreamId: event.id }];
 }

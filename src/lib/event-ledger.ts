@@ -1,3 +1,4 @@
+import { explicitReportMatch } from './upstream-report';
 import { isNewsDigest } from './event-text';
 import { eventTitleSimilarity, type FusedEvent } from './event-fusion';
 
@@ -62,6 +63,8 @@ function urlOverlap(a: FusedEvent, b: ContinuousEvent) {
 function matches(a: FusedEvent, b: ContinuousEvent) {
   if (a.id === b.fused_id) return true;
   if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
+  const explicit = explicitReportMatch(a.evidence, b.evidence);
+  if (explicit !== undefined) return explicit;
   if (urlOverlap(a, b)) return true;
   if (a.evidence.some(e => e.source_id === 'noaa-nws') && b.evidence.some(e => e.source_id === 'noaa-nws')) return false;
 
@@ -112,7 +115,7 @@ function materialChange(previous: ContinuousEvent, next: FusedEvent) {
     tags: [...event.tags].sort(),
     evidence: event.evidence.map(item => JSON.stringify([
       item.source_id, item.source, item.kind, item.independent, item.weight,
-      item.url, toMs(item.published_at),
+      item.url, item.upstream_id, toMs(item.published_at),
     ])).sort(),
   });
   return content(previous) !== content(next);
