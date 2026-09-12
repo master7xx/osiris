@@ -448,3 +448,7 @@ private-address checks remain enabled, TLS certificates are verified and image
 responses are bounded to 8 MiB. Invalid certificates and non-image responses now
 fail closed. Tile proxy redirects are rejected. Provider compatibility still
 requires a live camera check on the deployment host.
+
+MapLibre workers are served locally from `/vendor/maplibre/`; `predev` and
+`prebuild` copy the worker and its shared module from the locked dependency.
+The scoped Turbopack loader handles MapLibre 6’s dynamic worker URL expression.

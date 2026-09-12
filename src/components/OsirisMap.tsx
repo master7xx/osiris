@@ -3,6 +3,11 @@ import { buildGeometry, closeRing, drawReducer, initialDrawState, measure, type 
 
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import * as maplibregl from 'maplibre-gl';
+
+if (typeof window !== 'undefined') {
+    maplibregl.setWorkerUrl(new URL('/vendor/maplibre/maplibre-gl-worker.mjs', window.location.href).href);
+}
+
 import { createSatelliteLayer, parseColor, type SatPoint } from '@/lib/satellite-layer';
 import { MAP_DEFAULTS, MAP_PALETTE_KEYS, readMapPalette, satColorFor, type MapPalette } from '@/lib/map-palette';
 import { STYLE_EVENT } from '@/lib/style-tokens';

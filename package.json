@@ -18,7 +18,10 @@
     "smoke:windows": "node tools/windows-smoke.mjs",
     "events:collect": "node --import tsx tools/collect-events.ts",
     "events:migrate": "node tools/migrate-events.mjs",
-    "test:event-store": "node tools/test-event-store.mjs"
+    "test:event-store": "node tools/test-event-store.mjs",
+    "predev": "node tools/prepare-map-worker.mjs",
+    "predev:windows": "node tools/prepare-map-worker.mjs",
+    "prebuild": "node tools/prepare-map-worker.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

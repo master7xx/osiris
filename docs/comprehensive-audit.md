@@ -94,3 +94,9 @@ switching and offline cache recovery. Data remain on the server; the browser
 cache remains disposable. Database tests need the separate `_test` database
 configuration already documented in README. Never use a production database for
 those truncating tests.
+
+Windows CI exposed a MapLibre 6 dynamic worker URL incompatibility with Turbopack.
+A scoped loader resolves that expression at runtime; predev/prebuild copy the
+worker and shared module locally, and the map sets an explicit same-origin URL.
+Git checkout cleanup also warns about existing scratch/astra and scratch/mast3r
+gitlinks without .gitmodules entries; these pre-existing references were retained.
