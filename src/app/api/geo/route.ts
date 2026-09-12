@@ -1,3 +1,4 @@
+import { publicGeoIp, validGeoCoordinates } from '@/lib/geo-ip';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Server-side proxy for IP geolocation — avoids mixed-content block on HTTPS pages
@@ -11,9 +12,9 @@ export async function GET(request: NextRequest) {
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       '';
 
-    // Skip private/loopback IPs — let the API auto-detect
-    const isPrivate = !clientIp || clientIp === '::1' || clientIp === '127.0.0.1' || clientIp.startsWith('192.168.') || clientIp.startsWith('10.') || clientIp.startsWith('172.');
-    const ip = isPrivate ? '' : clientIp;
+    // With no public client IP, providers locate the server's egress IP.
+    const ip = publicGeoIp(clientIp);
+    const lookup_scope = ip ? 'client-ip' : 'server-egress';
 
     // ── Provider 1: ipapi.co (HTTPS, free tier 1000/day) ──
     try {
@@ -25,9 +26,10 @@ export async function GET(request: NextRequest) {
       });
       if (res.ok) {
         const d = await res.json();
-        if (!d.error && d.latitude) {
+        if (!d.error && validGeoCoordinates(d.latitude, d.longitude)) {
           return NextResponse.json({
             status: 'success',
+            lookup_scope,
             query: d.ip,
             lat: d.latitude,
             lon: d.longitude,
@@ -51,9 +53,10 @@ export async function GET(request: NextRequest) {
       });
       if (res.ok) {
         const d = await res.json();
-        if (d.latitude) {
+        if (!d.error && validGeoCoordinates(d.latitude, d.longitude)) {
           return NextResponse.json({
             status: 'success',
+            lookup_scope,
             query: d.ipAddress || ip || 'auto',
             lat: d.latitude,
             lon: d.longitude,
@@ -79,8 +82,8 @@ export async function GET(request: NextRequest) {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.status === 'success') {
-          return NextResponse.json(data);
+        if (data.status === 'success' && validGeoCoordinates(data.lat, data.lon)) {
+          return NextResponse.json({ ...data, lookup_scope });
         }
       }
     } catch { /* fall through */ }

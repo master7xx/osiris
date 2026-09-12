@@ -258,12 +258,13 @@ function parseTelegram(html: string, source: SourceDef, sourceWeight: number): R
   return items.slice(-source.maxItems);
 }
 
-async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
+async function fetchWithRetry(url: string, init: Omit<RequestInit, 'signal'>, attempts = 2): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const response = await fetch(url, init);
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(6500) });
       if (response.ok || response.status < 500 || attempt === attempts - 1) return response;
+      await response.body?.cancel();
     } catch (error) {
       lastError = error;
       if (attempt === attempts - 1) throw error;
@@ -302,7 +303,6 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
 
     if (source.kind === 'rss' && source.url) {
       const response = await fetchWithRetry(source.url, {
-        signal: AbortSignal.timeout(6500),
         headers: { 'User-Agent': 'OSIRIS/1.0 (+https://github.com/master7xx/osiris)' },
         cache: 'no-store',
       });
@@ -316,7 +316,6 @@ async function fetchSource(source: SourceDef): Promise<{ items: RawArticle[]; he
       })).filter(item => item.title.length >= 8);
     } else if (source.kind === 'telegram' && source.channel) {
       const response = await fetchWithRetry(`https://t.me/s/${source.channel}`, {
-        signal: AbortSignal.timeout(6500),
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36' },
         cache: 'no-store',
       });
@@ -435,6 +434,7 @@ export async function aggregateNews() {
 }
 
 export const __test = {
+  fetchWithRetry,
   similarity,
   clusterArticles,
   scoreRisk,

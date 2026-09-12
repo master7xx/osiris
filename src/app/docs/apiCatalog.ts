@@ -326,8 +326,9 @@ export const API_GROUPS: ApiGroup[] = [
       {
         path: '/api/geo',
         method: 'GET',
-        summary: 'Geolocates the calling client by IP.',
-        returns: ['status', 'query', 'city', 'regionName', 'country', 'lat', 'lon', 'isp', 'org'],
+        summary: 'IP geolocation with explicit client-IP or server-egress scope.',
+        returns: ['status', 'query', 'city', 'regionName', 'country', 'lat', 'lon', 'isp', 'org', 'lookup_scope'],
+        notes: 'Local, private or invalid client addresses use provider auto-detection of the server egress IP. lookup_scope distinguishes client-ip from server-egress; server-egress is not browser geolocation.',
       },
     ],
   },
