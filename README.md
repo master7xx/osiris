@@ -452,3 +452,6 @@ requires a live camera check on the deployment host.
 MapLibre workers are served locally from `/vendor/maplibre/`; `predev` and
 `prebuild` copy the worker and its shared module from the locked dependency.
 The scoped Turbopack loader handles MapLibre 6’s dynamic worker URL expression.
+
+Distance and area readouts use consistent English numeric formatting (for
+example `4,200 km` and `12.50 km²`) regardless of operating-system locale.
