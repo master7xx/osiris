@@ -77,7 +77,7 @@ describe('event fusion', () => {
   it('does not collapse separate nearby earthquakes unless time-space or title match is tight', () => {
     const a = event({
       id: 'usgs-a',
-      title: 'M5.2 earthquake near City A',
+      title: 'M5.2 earthquake beneath Sakura Ridge',
       category: 'earthquake',
       lat: 35,
       lng: 140,
@@ -85,7 +85,7 @@ describe('event fusion', () => {
     });
     const b = event({
       id: 'usgs-b',
-      title: 'M4.8 earthquake near City B',
+      title: 'M4.8 tremor under Harbor Basin',
       category: 'earthquake',
       lat: 35.25,
       lng: 140.2,
