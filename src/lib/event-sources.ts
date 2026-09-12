@@ -1,3 +1,4 @@
+import { isNewsDigest } from './event-text';
 import { aggregateNews, locateArticle, newsSourceTransport, type NewsItem } from './news-aggregator';
 import {
   classifyEventText,
@@ -70,7 +71,7 @@ function newsKind(source: string): EventSourceKind {
   return 'editorial';
 }
 
-function newsToEvent(item: NewsItem): IncomingEvent {
+export function newsToEvent(item: NewsItem): IncomingEvent {
   const count = Math.max(1, item.source_count || item.sources?.length || 1);
   const averageWeight = Math.max(0.4, item.evidence_weight / count);
   const sources = item.sources?.length ? item.sources : [item.source];
@@ -86,7 +87,8 @@ function newsToEvent(item: NewsItem): IncomingEvent {
   }));
   const text = `${item.title} ${item.description}`;
   const category = classifyEventText(text);
-  const coords = item.coords;
+  const digest = isNewsDigest(item.title, item.description);
+  const coords = digest ? undefined : item.coords;
   return {
     id: `news:${item.id}`,
     title: item.title,
@@ -95,14 +97,14 @@ function newsToEvent(item: NewsItem): IncomingEvent {
     occurred_at: item.published,
     discovered_at: new Date().toISOString(),
     ...(coords ? { lat: coords[0], lng: coords[1] } : {}),
-    location: item.location,
-    location_confidence: item.location_confidence,
+    location: digest ? undefined : item.location,
+    location_confidence: digest ? 0 : item.location_confidence,
     severity: clamp(Math.round((item.risk_score || 1) * 9 + (item.confidence === 'high' ? 8 : item.confidence === 'medium' ? 4 : 0)), 10, 100),
     evidence,
     source_count_hint: item.source_count,
     independent_sources_hint: item.independent_sources,
     evidence_weight_hint: item.evidence_weight,
-    tags: ['news', item.confidence],
+    tags: ['news', item.confidence, ...(digest ? ['digest'] : [])],
   };
 }
 

@@ -1,3 +1,4 @@
+import { isNewsDigest } from './event-text';
 import type { EventCategory } from './event-fusion';
 import type { ContinuousEvent } from './event-ledger';
 
@@ -6,6 +7,7 @@ export const WORLD_EVENT_CATEGORIES = ['conflict', 'protest', 'political', 'eart
 export interface EventFilters { category: string; severity: number; confidence: string; mappable: boolean }
 export const DEFAULT_EVENT_FILTERS: EventFilters = { category: '', severity: 0, confidence: '', mappable: false };
 export function isMappable(event: ContinuousEvent) {
+  if (event.tags?.includes('digest') || isNewsDigest(event.title, event.description)) return false;
   return typeof event.lat === 'number' && Number.isFinite(event.lat) && Math.abs(event.lat) <= 90
     && typeof event.lng === 'number' && Number.isFinite(event.lng) && Math.abs(event.lng) <= 180
     && event.location_confidence >= 0.75;

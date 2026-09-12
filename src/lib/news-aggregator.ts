@@ -1,3 +1,4 @@
+import { isNewsDigest } from './event-text';
 import Parser from 'rss-parser';
 import {
   getSourceHealthSnapshot,
@@ -168,6 +169,7 @@ const parser = new Parser({ timeout: 6500 });
 function decodeHtml(value: string): string {
   return value
     .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -175,7 +177,9 @@ function decodeHtml(value: string): string {
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -359,6 +363,7 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
   const clusters: Array<{ primary: typeof candidates[number]; articles: typeof candidates }> = [];
   for (const article of candidates) {
     const existing = clusters.find(cluster => Math.abs(cluster.primary.time - article.time) <= 6 * 60 * 60_000
+      && isNewsDigest(cluster.primary.title, cluster.primary.description) === isNewsDigest(article.title, article.description)
       && similarity(cluster.primary.title, article.title) >= 0.58);
     if (existing) existing.articles.push(article);
     else clusters.push({ primary: article, articles: [article] });

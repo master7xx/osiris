@@ -4,6 +4,8 @@ import { useWorldEvents } from './WorldEventsProvider';
 import { isMappable, safeEventUrl, WORLD_EVENT_CATEGORIES } from '@/lib/world-events-view';
 import { SeverityBadge, SourceBadge } from './WorldEventBadges';
 import './world-events.css';
+import WorldEventText from './WorldEventText';
+import { isNewsDigest } from '@/lib/event-text';
 
 export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }) {
   const feed = useWorldEvents();
@@ -33,13 +35,14 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       {feed.selectedId && !feed.events.some(event => event.id === feed.selectedId) && <p role="status">Selected event is outside the current filters or snapshot.</p>}
       {!feed.loading && !feed.error && !feed.events.length && <p>No events match these filters.</p>}
       {feed.events.map(event => <article key={event.id} ref={event.id === feed.selectedId ? selected : undefined} className="world-event-card" data-selected={event.id === feed.selectedId}>
-        <div className="world-event-meta"><SeverityBadge severity={event.severity} /><span>{event.category}</span><span>{event.confidence}</span></div>
+        <div className="world-event-meta"><SeverityBadge severity={event.severity} /><span>{event.category}</span>{(event.tags?.includes('digest') || isNewsDigest(event.title, event.description)) && <span>Digest · Multiple reports</span>}<span>{event.confidence}</span></div>
         <button type="button" className="world-event-title" aria-pressed={event.id === feed.selectedId} onClick={() => { feed.selectEvent(event.id, 'list'); if (isMappable(event)) onLocate?.(); }}>{event.title}</button>
         {feed.retainedIds.includes(event.id) && <div className="world-event-time">Cached previous report · Last observed {new Date(event.last_observed_at).toLocaleString([], { timeZone: 'UTC', hour12: false })} UTC</div>}
-        <div className="world-event-location">{event.location || 'Location unspecified'}{!isMappable(event) && ' · No reliable map position'}</div>
+        <div className="world-event-location">{event.tags?.includes('digest') || isNewsDigest(event.title, event.description) ? 'Digest · No single event location' : event.location || 'Location unspecified'}{!isMappable(event) && ' · No reliable map position'}</div>
         <time className="world-event-time" dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString([], { timeZone: 'UTC', hour12: false })} UTC</time>
         <div className="world-event-sources">{event.sources.map(source => <SourceBadge key={source} source={source} evidence={event.evidence.find(item => item.source === source)} />)}<span className="world-event-source-count">{event.independent_sources} independent</span></div>
-        {event.id === feed.selectedId && <div className="world-event-detail"><p>{event.description}</p><strong>Evidence</strong>{event.evidence.map((evidence, index) => <div key={`${evidence.source_id}-${index}`}><SourceBadge source={evidence.source} evidence={evidence} /> · {evidence.kind}{evidence.url && safeEventUrl(evidence.url) && <> · <a href={safeEventUrl(evidence.url)} target="_blank" rel="noopener noreferrer">Open source</a></>}</div>)}</div>}
+        <WorldEventText key={`${event.id}:${event.description}`} text={event.description} />
+        {event.id === feed.selectedId && <div className="world-event-detail"><strong>Evidence</strong>{event.evidence.map((evidence, index) => <div key={`${evidence.source_id}-${index}`}><SourceBadge source={evidence.source} evidence={evidence} /> · {evidence.kind}{evidence.url && safeEventUrl(evidence.url) && <> · <a href={safeEventUrl(evidence.url)} target="_blank" rel="noopener noreferrer">Open source</a></>}</div>)}</div>}
       </article>)}
     </div>
   </section>;

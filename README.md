@@ -471,3 +471,19 @@ cards and filters. `PARTIAL SOURCES (GLOBAL)` describes collector availability
 across all categories; changing a display filter cannot change that global health.
 All databases remain on the server. Browser cache is disposable and subject to
 the existing storage quota; a large checkpoint can remain memory-only.
+
+Long event cards show a three-line title and six-line description preview.
+`Read full text / Читать полностью` expands the original plain text independently
+of map selection; `Collapse / Свернуть` restores the preview. Paragraphs and
+common digest bullets retain line breaks. Source badges remain outside the preview.
+
+An explicit roundup label plus multiple list items marks a probable digest.
+Such reports are labelled `Digest · Multiple reports` and are not assigned a
+single map position, including when read from an older client cache. They are
+not automatically split into separate incidents; this conservative heuristic is
+not a complete semantic classifier. Ordinary long reports remain individual events.
+
+Camera JPG loading is labelled `SOURCE SNAPSHOT` / `IMAGE LOADED · UNVERIFIED`.
+A successful image request can contain an operator outage placeholder and does
+not prove camera availability or recording. Placeholder-image recognition is
+not implemented; the operator's notice remains visible in the supplied image.
