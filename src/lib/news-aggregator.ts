@@ -96,6 +96,10 @@ const SOURCES: SourceDef[] = [
   { id: 'liveuamap', name: 'Liveuamap', kind: 'telegram', tier: 'osint', channel: 'liveuamap', independent: false, weight: 0.85, maxItems: 8 },
 ];
 
+export function newsSourceTransport(name: string): 'rss' | 'telegram' | undefined {
+  return SOURCES.find(source => source.name === name)?.kind;
+}
+
 const RISK_KEYWORDS = [
   'war', 'missile', 'strike', 'attack', 'crisis', 'military', 'conflict', 'nuclear',
   'invasion', 'bomb', 'drone', 'weapon', 'sanctions', 'ceasefire', 'escalation',

@@ -1,4 +1,4 @@
-import { aggregateNews, locateArticle, type NewsItem } from './news-aggregator';
+import { aggregateNews, locateArticle, newsSourceTransport, type NewsItem } from './news-aggregator';
 import {
   classifyEventText,
   type EventCategory,
@@ -78,6 +78,7 @@ function newsToEvent(item: NewsItem): IncomingEvent {
     source_id: `news:${sourceSlug(source)}`,
     source,
     kind: newsKind(source),
+    transport: newsSourceTransport(source),
     independent: !NEWS_NON_INDEPENDENT.has(source),
     weight: averageWeight,
     ...(source === item.source && item.link ? { url: item.link } : {}),

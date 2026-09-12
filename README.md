@@ -85,7 +85,11 @@ snapshot shared with map markers. Category, minimum severity, confidence and
 located-only filters apply to both views. Clicking a card locates a reliably
 positioned event; clicking its marker selects the card and opens the panel.
 Unlocated events stay in the list. Expanded cards show supporting sources;
-severity and corroboration confidence remain separate fields.
+severity and corroboration confidence remain separate fields. All sources use the
+same card typography (13 px message text, 11 px metadata). Severity badges show
+low (<35), medium (35–69) and high (70+) with different icons and text. Source
+badges distinguish Telegram, BBC, broadcasters, editorial, official and sensor
+sources; mixed-source events retain a badge for each source.
 
 The snapshot refreshes every 90 seconds while visible and when the page becomes
 visible. Failed refreshes retain the last snapshot; partial source coverage and

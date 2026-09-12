@@ -17,6 +17,7 @@ export type EventConfidence = 'unconfirmed' | 'corroborating' | 'confirmed';
 export type EventSourceKind = 'editorial' | 'osint' | 'broadcaster' | 'official' | 'sensor' | 'aggregator';
 
 export interface EventEvidence {
+  transport?: 'rss' | 'telegram';
   source_id: string;
   source: string;
   kind: EventSourceKind;
