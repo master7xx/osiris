@@ -1,6 +1,6 @@
 # Durable events and background ingestion
 
-Status: implementation design, not enabled runtime behavior. This is the next
+Status: writer/migration foundation implemented; durable runtime integration remains planned. This is the next
 backend stage after the shared World Events UI. The running application still
 uses the process-local ledger and request-triggered collection.
 
@@ -117,3 +117,19 @@ can take over an expired lease; fencing blocks the old process from committing.
 - Collection progresses with all browsers closed and recovers after failures.
 - Native Windows CI and a PostgreSQL-backed integration job pass; Docker volume
   restart recovery is checked before advertising durable deployment support.
+
+## Writer foundation delivered
+
+`migrations/events/001_initial.sql`, `tools/migrate-events.mjs` and
+`src/lib/durable-event-store.ts` implement transactionally serialized writes,
+exact identity aliases, immutable full-payload revisions and retained evidence.
+A checksum protects applied migrations. Repeating an identical batch UUID returns
+its original result; reusing it for different input fails. Updates use optimistic
+revision checks; callers must reload/reconcile after a conflict, not blindly retry
+stale payloads. Derived age/ranking changes do not create a revision; future
+readers must calculate freshness from observation times.
+
+The writer is not wired into collectors or API routes. It does not yet implement
+lease fencing, source snapshots, pruning, tombstones, replay/bootstrap or fuzzy
+identity reconciliation. Until those gates pass it is an isolated store primitive,
+not a production durable deployment. No automatic background timer is introduced.

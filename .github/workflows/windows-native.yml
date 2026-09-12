@@ -4,7 +4,6 @@ on:
   push:
     branches: [master]
   pull_request:
-    branches: [master]
 
 concurrency:
   group: windows-native-${{ github.workflow }}-${{ github.ref }}

@@ -318,3 +318,42 @@ its instructions change. Repository guidance is recorded in [AGENTS.md](AGENTS.m
 MIT; see [LICENSE](LICENSE). This repository continues work from
 [simplifaisoul/osiris](https://github.com/simplifaisoul/osiris).
 Provider data, imagery and streams retain their own terms and attribution.
+
+## Durable event store: first implementation slice
+
+The optional PostgreSQL writer and migration are implemented; the running map,
+`/api/events` and `/api/conflicts` still use the existing in-memory pipeline.
+No background collector or durable replay API is enabled yet.
+
+`DurableEventStore.commitBatch` atomically persists exact upstream identity
+mappings, current event payload, retained evidence and immutable revisions.
+A batch UUID makes retries idempotent; conflicting updates require the caller to
+reload the current revision. Cursor values are decimal strings, serialized under
+a metadata-row lock. Historical evidence is kept separately from current-event
+confidence. This first slice accepts exact upstream identities and does not yet
+integrate the fuzzy continuity matcher, source schedules, lease fencing or pruning.
+
+Use PostgreSQL 17 (the integration CI target). In PowerShell, with a database you
+created for this application:
+
+```powershell
+$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
+npm run events:migrate
+```
+
+This creates the `osiris_events` schema and records a migration checksum;
+re-running it is safe. It does not switch application reads to PostgreSQL.
+
+Database tests require a **dedicated disposable database whose name ends in
+`_test`**; they truncate all event-store records in that database:
+
+```powershell
+$env:EVENT_TEST_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events_test"
+npm run test:event-store
+```
+
+Ordinary `npm test` skips these database tests without the test URL. The dedicated
+PostgreSQL CI job supplies a disposable database; Windows CI continues to check
+the application build and smoke startup. See the
+[durable-store contract](docs/architecture/durable-events.md) for the remaining
+reader, replay, collector and deployment work.
