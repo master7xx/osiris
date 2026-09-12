@@ -595,3 +595,20 @@ are released; HTTP 4xx is not retried. Two timeout failures can therefore take
 about 13 seconds, plus processing/scheduling overhead. This fixes ineffective
 retry attempts; it does not eliminate external network outages or guarantee
 that all event sources are healthy.
+
+
+### Snapshot recovery and source status
+
+If every source fails, the snapshot endpoint retains the previous event data
+and its `generated_at` timestamp, but publishes the failed refresh's source
+health rather than the previous healthy count. `refresh_error` and
+`refresh_attempted_at` identify a failed refresh even on HTTP 200. These fields
+survive client projection and cache reload; the panel marks the data cached/stale
+and displays the failure. A successful refresh clears the failure metadata.
+Unexpected collection errors likewise mark current health unavailable.
+
+Category source lists describe the provenance of displayed reports, including
+retained reports. Global health describes source availability at collection time.
+Debug request errors are historical: they can remain after current health recovers.
+Client retention does not renew an event's observation clock. Durable-mode
+storage and its synchronization protocol are unchanged by this snapshot fix.

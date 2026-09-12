@@ -51,7 +51,9 @@ function project(events: ContinuousEvent[], collector: Collector | null, fallbac
   checkHealth(health);
   const categories: UnifiedEventFeed['categories'] = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
-  return { events, total: events.length, mappable: events.filter(isMappable).length,
+  return { ...(!collector && fallback?.refresh_error ? {
+    refresh_error: fallback.refresh_error, refresh_attempted_at: fallback.refresh_attempted_at,
+  } : {}), events, total: events.length, mappable: events.filter(isMappable).length,
     confirmed: events.filter(event => event.confidence === 'confirmed').length, corroborating: events.filter(event => event.confidence === 'corroborating').length,
     unconfirmed: events.filter(event => event.confidence === 'unconfirmed').length, categories, source_health: health,
     source_count: health.reduce((n, source) => n + source.source_count, 0), healthy_sources: health.reduce((n, source) => n + source.healthy_sources, 0),
@@ -68,6 +70,8 @@ export function validateClientCache(value: unknown): EventClientCache | null {
     if (cache.version !== 1 || !['snapshot', 'durable'].includes(cache.mode) || !Number.isFinite(cache.savedAt)
       || !Array.isArray(cache.feed.events) || !Array.isArray(cache.feed.source_health) || !Number.isFinite(Date.parse(cache.feed.generated_at))
       || cache.mode === 'durable' && (typeof cache.cursor !== 'string' || !cache.cursor.length)) return null;
+    if (cache.feed.refresh_error !== undefined && typeof cache.feed.refresh_error !== 'string') return null;
+    if (cache.feed.refresh_attempted_at !== undefined && !Number.isFinite(Date.parse(cache.feed.refresh_attempted_at))) return null;
     checkHealth(cache.feed.source_health);
     if (cache.retainedIds !== undefined && (!Array.isArray(cache.retainedIds) || !cache.retainedIds.every(id => typeof id === 'string'))) return null;
     cache.feed.events.forEach(checkEvent); return cache;
