@@ -1,5 +1,5 @@
 import { fuseEvents, type EventCategory } from './event-fusion';
-import { applyEventLedger, type ContinuousEvent } from './event-ledger';
+import { applyEventLedger, resetEventLedgerForTests, type ContinuousEvent } from './event-ledger';
 import { collectEventSources, type EventSourceHealth } from './event-sources';
 import { collectSupplementalEventSignals } from './event-signals';
 
@@ -109,4 +109,5 @@ export async function getUnifiedEventFeed(options: { now?: number; force?: boole
 
 export function resetUnifiedEventFeedForTests() {
   globalThis.__OSIRIS_EVENT_FEED_CACHE__ = undefined;
+  resetEventLedgerForTests();
 }
