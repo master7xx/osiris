@@ -82,6 +82,14 @@ describe('event fusion', () => {
       lat: 35,
       lng: 140,
       occurred_at: '2026-09-12T05:00:00.000Z',
+      evidence: [{
+        source_id: 'usgs-earthquakes',
+        source: 'USGS Earthquakes',
+        kind: 'sensor',
+        independent: true,
+        weight: 1.5,
+        url: 'https://earthquake.usgs.gov/event/a',
+      }],
     });
     const b = event({
       id: 'usgs-b',
@@ -90,6 +98,14 @@ describe('event fusion', () => {
       lat: 35.25,
       lng: 140.2,
       occurred_at: '2026-09-12T06:30:00.000Z',
+      evidence: [{
+        source_id: 'usgs-earthquakes',
+        source: 'USGS Earthquakes',
+        kind: 'sensor',
+        independent: true,
+        weight: 1.5,
+        url: 'https://earthquake.usgs.gov/event/b',
+      }],
     });
     expect(shouldFuseEvents(a, b)).toBe(false);
   });
