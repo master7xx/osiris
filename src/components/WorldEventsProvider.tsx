@@ -33,7 +33,7 @@ function useWorldEventsState(onMapSelect: () => void) {
       if (request.current !== controller) return;
       checkpoint.current = next;
       writeEventCache(next);
-      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(false);
+      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(Boolean(next.feed.refresh_error));
     } catch (err) {
       if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(Boolean(checkpoint.current)); }
     } finally {
@@ -64,7 +64,7 @@ function useWorldEventsState(onMapSelect: () => void) {
     else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
   }, [openFeed]);
   return { openFeed, panelRequest, snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
-    enabled, setEnabled, loading, error, refresh, fromCache,
+    enabled, setEnabled, loading, error: error || snapshot?.refresh_error || '', refresh, fromCache,
     stale: !!snapshot && (fromCache || now - Date.parse(snapshot.generated_at) > 180000),
     partial: !!snapshot && (snapshot.healthy_sources < snapshot.source_count || snapshot.source_health.some(source => source.state !== 'healthy')) };
 }

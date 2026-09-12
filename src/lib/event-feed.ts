@@ -4,6 +4,8 @@ import { collectEventSources, type EventSourceHealth } from './event-sources';
 import { collectSupplementalEventSignals } from './event-signals';
 
 export interface UnifiedEventFeed {
+  refresh_error?: string;
+  refresh_attempted_at?: string;
   events: ContinuousEvent[];
   total: number;
   mappable: number;
@@ -41,6 +43,12 @@ function cache(): FeedCache {
   return globalThis.__OSIRIS_EVENT_FEED_CACHE__;
 }
 
+class SourceOutage extends Error {
+  constructor(readonly health: EventSourceHealth[], readonly sourceCount: number) {
+    super('all unified event sources unavailable');
+  }
+}
+
 async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed> {
   const [core, supplemental] = await Promise.all([
     collectEventSources(),
@@ -51,7 +59,7 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
   if (healthySources === 0) {
     // Trigger getUnifiedEventFeed's stale fallback instead of replacing a good
     // previous snapshot with a globally empty feed during a broad outage.
-    throw new Error('all unified event sources unavailable');
+    throw new SourceOutage([...core.health, ...supplemental.health], core.source_count + supplemental.source_count);
   }
 
   const signals = [...core.events, ...supplemental.events];
@@ -104,6 +112,16 @@ export async function getUnifiedEventFeed(options: { now?: number; force?: boole
   } catch (error) {
     if (state.value) {
       // Retry relatively soon while continuing to serve the last complete view.
+      const message = error instanceof Error ? error.message : 'Event refresh failed';
+      state.value = { ...state.value,
+        refresh_error: message, refresh_attempted_at: new Date(now).toISOString(),
+        source_health: error instanceof SourceOutage ? error.health : state.value.source_health.map(source => ({
+          ...source, state: 'error', ok: false, healthy_sources: 0, events: 0,
+          error: 'Collection failed; current source health unavailable',
+        })),
+        source_count: error instanceof SourceOutage ? error.sourceCount : state.value.source_count,
+        healthy_sources: 0,
+      };
       state.expires_at = Date.now() + 15_000;
       return structuredClone(state.value);
     }
