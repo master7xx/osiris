@@ -1,3 +1,4 @@
+import { fetchKevEvents } from './cisa-kev';
 import { fetchSwpcEvents } from './swpc-alerts';
 import { fetchNwsEvents } from './nws-alerts';
 import { centroidFor } from './countryCentroids';
@@ -433,6 +434,7 @@ async function runAdapter(adapter: SignalAdapter): Promise<{ events: IncomingEve
 
 export async function collectSupplementalEventSignals(): Promise<SupplementalEventSignals> {
   const adapters: SignalAdapter[] = [
+    { id: 'cisa-kev', label: 'CISA KEV Advisories', fetch: fetchKevEvents },
     { id: 'noaa-swpc', label: 'NOAA / SWPC Bulletins', fetch: fetchSwpcEvents },
     { id: 'noaa-nws', label: 'NOAA / NWS Alerts', fetch: fetchNwsEvents },
     { id: 'nasa-eonet', label: 'NASA EONET', fetch: fetchEonetEvents },
