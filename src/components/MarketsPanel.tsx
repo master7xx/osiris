@@ -200,23 +200,34 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
     </div>
   );
 
+  const spaceColor = spaceWeather?.kp_index == null ? 'var(--text-primary)' : spaceWeather.storm_color;
   const spaceBlock = spaceWeather && (
-    <div className="p-2 rounded-lg border" style={{ borderColor: `${spaceWeather.storm_color}33`, background: `${spaceWeather.storm_color}08` }}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Zap className="w-3 h-3" style={{ color: spaceWeather.storm_color }} />
-          <span className="text-[11px] font-mono tracking-widest text-[var(--text-muted)]">SPACE WEATHER</span>
+    <section aria-label="Space weather" className="p-3 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-panel-solid)]">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex items-center gap-1.5 text-[var(--text-primary)]">
+          <Zap className="w-4 h-4 shrink-0" aria-hidden="true" />
+          <span className="text-xs font-mono font-semibold tracking-wide">SPACE WEATHER</span>
         </div>
-        <span className="text-[11px] font-mono font-bold" style={{ color: spaceWeather.storm_color }}>
+        <span className="text-xs font-mono font-bold" style={{ color: spaceColor }}>
           Kp {spaceWeather.kp_index ?? '—'} — {spaceWeather.storm_level}
         </span>
       </div>
       {spaceWeather.solar_flares?.length > 0 && (
-        <div className="mt-1 text-[9px] font-mono text-[var(--text-muted)]">
+        <div className="mt-2 text-xs font-mono text-[var(--text-primary)]">
           Latest flare: {spaceWeather.solar_flares[0].class}
         </div>
       )}
-    </div>
+      {['partial', 'unavailable'].includes(spaceWeather.data_status) && (
+        <div className="mt-2 text-xs font-mono text-[var(--text-primary)]">
+          {spaceWeather.data_status === 'unavailable' ? 'Data unavailable' : 'Partial data'}
+          {spaceWeather.availability && <span> · {[
+            !spaceWeather.availability.kp && 'Kp unavailable',
+            !spaceWeather.availability.alerts && 'Alerts unavailable',
+            !spaceWeather.availability.solar_flares && 'Flares unavailable',
+          ].filter(Boolean).join(' · ')}</span>}
+        </div>
+      )}
+    </section>
   );
 
   const aiBlock = <AiOverview mode="markets" payload={{ markets, spaceWeather }} accent="#D4AF37" />;
@@ -309,8 +320,8 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
       // `relative` and `fixed` are both position utilities, so listing them
       // together lets CSS order decide the winner rather than the state —
       // which is what stopped the panel going fullscreen.
-      maximized ? 'fixed inset-3 z-[9999] bg-[#0a0a09]/95 backdrop-blur-3xl' : 'relative'
-    }`}>
+      maximized ? 'fixed inset-3 z-[9999]' : 'relative'
+    }`} style={{ background: 'var(--bg-panel-solid)' }}>
       {/* Header controls sit side by side, not nested — a button inside a
           button is invalid HTML and React fails hydration on it. */}
       <div className="flex items-center justify-between w-full mb-2">
