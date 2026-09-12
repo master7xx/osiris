@@ -15,7 +15,6 @@ export interface ContinuousEvent extends Omit<FusedEvent, 'id'> {
 
 interface LedgerEntry {
   stableId: string;
-  fusedId: string;
   event: ContinuousEvent;
 }
 
@@ -82,7 +81,6 @@ function materialChange(previous: ContinuousEvent, next: FusedEvent) {
   if (previous.source_count !== next.source_count) return true;
   if (previous.independent_sources !== next.independent_sources) return true;
   if (previous.severity !== next.severity) return true;
-  if (previous.priority_score !== next.priority_score) return true;
   if (previous.title !== next.title) return true;
   if (previous.location !== next.location) return true;
   if (previous.urls.length !== next.urls.length) return true;
@@ -119,7 +117,7 @@ export function applyEventLedger(events: FusedEvent[], now = Date.now()) {
         update_count: 0,
         change_sequence: sequence,
       };
-      ledger.entries.set(event.id, { stableId: event.id, fusedId: incoming.id, event });
+      ledger.entries.set(event.id, { stableId: event.id, event });
       output.push(event);
       continue;
     }
@@ -137,7 +135,6 @@ export function applyEventLedger(events: FusedEvent[], now = Date.now()) {
       update_count: existing.event.update_count + (changed ? 1 : 0),
       change_sequence: sequence,
     };
-    existing.fusedId = incoming.id;
     existing.event = event;
     output.push(event);
   }
