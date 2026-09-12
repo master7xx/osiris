@@ -12,7 +12,8 @@ Windows development and a Docker standalone build.
 
 [Issues](https://github.com/master7xx/osiris/issues) ·
 [Pull requests](https://github.com/master7xx/osiris/pulls) ·
-[Event architecture audit](docs/unified-event-audit.md)
+[Event architecture audit](docs/unified-event-audit.md) ·
+[Durable-store design — planned](docs/architecture/durable-events.md)
 
 ## Current capabilities
 
