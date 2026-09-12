@@ -82,9 +82,7 @@ export async function getUnifiedEventFeed(options: { now?: number; force?: boole
   const state = cache();
   const now = options.now ?? Date.now();
   if (!options.force && state.value && now < state.expires_at) return structuredClone(state.value);
-  if (state.inflight) return structuredClone(await state.inflight);
-
-  const inflight = buildUnifiedEventFeed(now)
+  const inflight = state.inflight ?? buildUnifiedEventFeed(now)
     .then(value => {
       state.value = value;
       state.expires_at = Date.now() + CACHE_TTL_MS;

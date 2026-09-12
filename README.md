@@ -1,268 +1,278 @@
-<div align="center">
+# OSIRIS
 
-# ⬡ OSIRIS
+**Open Source Intelligence & Reconnaissance Integrated System**
 
-### Open Source Intelligence & Reconnaissance Integrated System
+[![Windows native CI](https://github.com/master7xx/osiris/actions/workflows/windows-native.yml/badge.svg)](https://github.com/master7xx/osiris/actions/workflows/windows-native.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-[![Live Demo](https://img.shields.io/badge/osirisai.live-00E5FF?style=for-the-badge&logo=vercel&logoColor=white)](https://osirislive.app)
-[![Support OSIRIS](https://img.shields.io/badge/Support_Project-Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/posts/159077425)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)](https://nextjs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![MapLibre](https://img.shields.io/badge/MapLibre_GL-GPU_Rendered-396CB2?style=for-the-badge)](https://maplibre.org)
-[![License](https://img.shields.io/badge/License-MIT-D4AF37?style=for-the-badge)](LICENSE)
+OSIRIS is a global situational-awareness dashboard built with Next.js,
+TypeScript and MapLibre. It combines a unified world-event feed with aviation,
+maritime, CCTV, environmental and OSINT views. This repository supports native
+Windows development and a Docker standalone build.
 
-**A real-time global intelligence dashboard that aggregates live flight tracking, CCTV networks, earthquake monitoring, conflict zone mapping, and 24/7 news feeds into a single GPU-accelerated interface.**
+[Issues](https://github.com/master7xx/osiris/issues) ·
+[Pull requests](https://github.com/master7xx/osiris/pulls) ·
+[Event architecture audit](docs/unified-event-audit.md)
 
-[Live Demo](https://osirisai.live) · [Report Bug](https://github.com/simplifaisoul/osiris/issues) · [Request Feature](https://github.com/simplifaisoul/osiris/issues) · [Join Discord](https://discord.gg/umBykEpb98)
+## Current capabilities
 
-</div>
+| Area | Implementation |
+| --- | --- |
+| World events | Shared ingest, normalization, fusion, evidence, severity, priority and continuity metadata through `/api/events` |
+| News and Telegram | Parallel RSS and public Telegram preview collection, headline deduplication, source health and location extraction |
+| Conflicts | `/api/conflicts` projects the shared feed into the existing `zones` and `liveEvents` response; zone anchors provide context and do not create offset event coordinates |
+| Natural hazards | USGS earthquakes, GDACS disasters, EONET events and clustered FIRMS fire detections in the shared feed |
+| Internet outages | Cloudflare Radar outage events when credentials are configured |
+| Aviation and maritime | ADS-B/OpenSky aircraft data, AIS vessel tracking with an API key, and port/chokepoint context |
+| CCTV | Regional provider adapters, coverage diagnostics, adaptive fallback, USGS volcano cameras and optional Windy enrichment |
+| Weather and space | Weather alerts, NOAA space weather, satellite positions from orbital data and orbit visualization |
+| OSINT and cyber | Domain/IP/DNS/CVE and sanctions lookups, wallet intelligence, malware/threat views and optional external services |
+| Diagnostics | Browser/API debug overlay, upstream timing correlation, news/CCTV/event source health |
 
----
+Coverage and freshness depend on the provider, credentials, network access and
+selected layer. Camera catalogue entries and static context are not a guarantee
+of a working live stream or a newly observed incident. Live broadcast streams are
+separate from the article-based world-event feed.
 
-## Windows version
-This is Windows adopted version.
-Clone of existing repo.
+## Quick start: native Windows
 
-```bash
+Use Node.js 22 to match Windows CI and the Docker image. `package.json` declares
+Node.js 20 or newer. Install Git and use a browser with WebGL support.
+
+From PowerShell:
+
+```powershell
 git clone https://github.com/master7xx/osiris.git
 cd osiris
-
 npm ci
 npm run doctor
-```
-
-Success output look like:
-```bash
-[OK] platform: Windows native
-[OK] Node.js: v22...
-[OK] working directory: package.json found
-```
-```bash
 Copy-Item .env.example .env.local
 npm run dev:windows
 ```
 
-## Overview
+Open [http://localhost:3000](http://localhost:3000). `dev:windows` binds to
+`0.0.0.0`; use `npm run dev -- -H 127.0.0.1` to bind only to localhost.
+The web application does not require WSL or Docker on Windows.
 
-Osiris is a production-grade OSINT platform that provides situational awareness across multiple intelligence domains. Built with Next.js 16 and MapLibre GL, every data point is rendered via WebGL for 60fps performance even with thousands of concurrent entities on-screen.
+On a POSIX shell, use `cp .env.example .env.local` and `npm run dev` after cloning
+and installing dependencies. Optional services and provider credentials can be
+configured later; the public world-event adapters do not require API keys.
 
-### Key Capabilities
+For a production build on the local machine:
 
-| Domain | Data Points | Sources |
-|--------|------------|---------|
-| **Aviation** | Commercial, Private, Military, Jets | OpenSky Network |
-| **Maritime** | 39 Global Ports, 10 Chokepoints | Static Naval Intel |
-| **CCTV** | 17,000+ Cameras | TfL, WSDOT, Caltrans, ODOT, MDOT, HK Transport Dept, Taiwan THB, NZTA + more |
-| **Seismic** | Real-time M2.5+ | USGS Earthquake API |
-| **Fires** | Active Hotspots | NASA FIRMS |
-| **News** | 24/7 Live Streams | 25+ Global Broadcasters |
-| **Weather** | Severe Events | NASA EONET |
-| **Space** | Solar Weather, Satellites | NOAA SWPC, N2YO |
-| **Cyber** | CVE Threats, Vulnerability Scanning | NVD, Custom Scanner |
-| **Conflict** | 13 Active Zones | Static OSINT Intel |
-| **Crypto** | BTC + ETH Wallet Tracing, OFAC SDN Match | blockstream.info, Blockscout, OpenSanctions |
-| **Sanctions** | Person / Org / Vessel SDN Search | OpenSanctions (US OFAC SDN mirror) |
-| **Telegram OSINT** | Geoparsed Posts from Public Channels | `t.me/s/<channel>` web preview |
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────┐
-│                  OSIRIS CLIENT                   │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐ │
-│  │ MapLibre  │  │  HUD     │  │  RECON Toolkit│ │
-│  │  GL (GPU) │  │ Panels   │  │  Port Scan    │ │
-│  │  WebGL    │  │ Layers   │  │  DNS / WHOIS  │ │
-│  │  Render   │  │ Controls │  │  Vuln Scanner │ │
-│  └──────────┘  └──────────┘  └───────────────┘ │
-├─────────────────────────────────────────────────┤
-│               NEXT.JS API ROUTES                 │
-│  /api/flights         /api/earthquakes          │
-│  /api/cctv            /api/news                 │
-│  /api/fires           /api/maritime             │
-│  /api/gdelt           /api/satellites           │
-│  /api/weather         /api/scanner              │
-│  /api/sentinel        /api/telegram-feed        │
-│  /api/osint/*  (whois, dns, ip, cve, sanctions, │
-│                 crypto, sweep, threats, …)      │
-├─────────────────────────────────────────────────┤
-│              EXTERNAL DATA SOURCES               │
-│  OpenSky · USGS · NASA · NOAA · TfL · NVD      │
-│  GDACS · EONET · FIRMS · N2YO · RSS Feeds      │
-│  blockstream.info · Blockscout · OpenSanctions  │
-│  t.me public previews                            │
-└─────────────────────────────────────────────────┘
+```sh
+npm run build
+npm start
 ```
 
----
+See [WINDOWS.md](WINDOWS.md) for native development and debugging details.
 
-## Features
+## Unified world-event architecture
 
-### Intelligence Layers
-- **16 toggleable data layers** with real-time entity counts
-- **GPU-accelerated rendering** — all map data rendered via WebGL, not DOM
-- **Progressive loading** — data fetched on-demand when layers are activated
-- **Viewport-aware** — only loads relevant data for the visible region
-
-### RECON Toolkit
-- **Port Scanner** — TCP connect scan with service fingerprinting
-- **DNS Lookup** — Full record resolution (A, AAAA, MX, NS, TXT, CNAME)
-- **WHOIS** — Domain/IP registration data (auto-cross-checked against OFAC SDN)
-- **SSL/TLS Inspector** — Certificate chain analysis
-- **IP Intelligence** — Geolocation, ASN, threat reputation (auto-cross-checked against OFAC SDN)
-- **Vulnerability Scanner** — CVE lookup against NVD database
-- **Crypto Wallet Trace** — BTC + ETH lookup (balance, tx history, OFAC SDN sanctions flag)
-- **OFAC Sanctions Search** — query persons, organizations, vessels and aircraft against the US OFAC SDN list
-
-### Live Broadcast Network
-- **25+ live 24/7 news streams** from global broadcasters
-- Click any news dot on the map to open the live stream
-- Feeds from NBC, CBS, ABC, Sky News, Al Jazeera, France 24, NHK, WION, and more
-
-### Telegram OSINT Layer
-- **Public-channel feed** scraped from the unauthenticated `t.me/s/<channel>` web preview — no Bot API token, no MTProto
-- Default curated set of 5 channels (EN + RU/UA war reporting), overridable via `OSIRIS_TELEGRAM_CHANNELS`
-- Posts are geoparsed against a multilingual place dictionary (EN + Cyrillic + Arabic) and plotted on the map
-- Click any cyan dot to read the post and jump to the original on Telegram
-
-### Crypto Wallet Intelligence
-- **BTC** lookups via [blockstream.info](https://blockstream.info) (Esplora API, keyless)
-- **ETH** lookups via [Blockscout](https://github.com/blockscout/blockscout)'s public ETH instance (`eth.blockscout.com`, keyless)
-- Every lookup is cross-checked against the OFAC SDN sanctioned-address list (mirrored from [`0xB10C/ofac-sanctioned-digital-currency-addresses`](https://github.com/0xB10C/ofac-sanctioned-digital-currency-addresses))
-- Sanctioned wallets surface a red **SANCTIONED — OFAC SDN** badge in the RECON panel
-
-### OFAC SDN Cross-Check
-- Standalone `SANCTIONS` tab in the RECON toolkit — full-text search across persons, organisations, vessels and aircraft
-- WHOIS and IP-intel routes auto-cross-check registrant / ASN-owner names against the SDN list and surface an inline alert
-- Data sourced from [OpenSanctions](https://www.opensanctions.org) (CC-BY 4.0) — keyless, ~7 MB cached in-memory for 24h
-
-### Conflict Zone Monitoring
-- **13 active conflict/tension zones** with severity-coded warning markers
-- Active Wars: Ukraine, Gaza, Sudan, Myanmar, DRC, Yemen
-- High Tension: Syria, Lebanon, Sahel, Somalia, Red Sea
-- Elevated: Taiwan Strait, Korean DMZ
-
-### Performance Optimized
-- **75% reduction in edge requests** vs initial release
-- Aggressive polling relaxation (15-30 min intervals for stable data)
-- Static data served from memory (zero external API calls for news feeds)
-- `layerFetchedRef` prevents duplicate API requests
-
----
-
-## Quick Start
-
-```bash
-git clone https://github.com/simplifaisoul/osiris.git
-cd osiris
-npm install
-npm run dev
+```mermaid
+flowchart TD
+    Core["News, Telegram, GDELT, GDACS, USGS"] --> Collect["Parallel source collection"]
+    Extra["EONET, FIRMS, optional Radar"] --> Collect
+    Collect --> Fusion["Normalize, deduplicate, combine evidence"]
+    Fusion --> Ledger["Process-local continuity ledger"]
+    Ledger --> Feed["Shared cached feed"]
+    Feed --> Events["/api/events"]
+    Feed --> Conflicts["/api/conflicts projection"]
+    Events --> UI["World-event map and ingest health"]
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+The main modules are:
 
-### Docker / Self-Hosting
+| Module | Responsibility |
+| --- | --- |
+| [`event-sources.ts`](src/lib/event-sources.ts) | Core adapter registry and source health |
+| [`event-signals.ts`](src/lib/event-signals.ts) | Supplemental hazard and outage adapters |
+| [`event-fusion.ts`](src/lib/event-fusion.ts) | Event schema, classification, title/time/location matching and evidence aggregation |
+| [`event-ledger.ts`](src/lib/event-ledger.ts) | Stable identity across refreshes, material changes, lifecycle and sequence numbers |
+| [`event-feed.ts`](src/lib/event-feed.ts) | Collection orchestration, shared in-flight request and snapshot cache |
+| [`conflict-projection.ts`](src/lib/conflict-projection.ts) | Compatibility projection for conflict consumers |
 
-```bash
-git clone https://github.com/simplifaisoul/osiris.git
-cd osiris
-cp .env.template .env     # optional — configure keys / port
-docker compose up -d
+### Connected sources
+
+| Adapter | Input | Configuration |
+| --- | --- | --- |
+| News + Telegram | RSS publishers and public `t.me/s/` previews | Curated registry in [`news-aggregator.ts`](src/lib/news-aggregator.ts); no Telegram token |
+| GDELT DOC | Global article-discovery queries | Public endpoint |
+| GDACS | Multi-hazard RSS | Public endpoint |
+| USGS | M2.5+ earthquakes over the past day | Public GeoJSON |
+| NASA EONET | Open natural events | Public endpoint |
+| NASA FIRMS | VIIRS/MODIS detections clustered into signals | Public CSV feeds |
+| Cloudflare Radar | Outage annotations | `CLOUDFLARE_API_TOKEN`; adapter enabled only when set |
+
+The news registry includes BBC, Guardian, Al Jazeera and Euronews RSS alongside
+editorial and OSINT Telegram channels. Edit the registry to change this set;
+the current aggregator does not read `OSIRIS_TELEGRAM_CHANNELS`.
+
+Events carry source evidence and URLs, category, occurrence/observation times,
+optional coordinates, location confidence, severity and priority. Fusion uses
+heuristics and has stricter matching for nearby earthquakes. Confidence values
+are `unconfirmed`, `corroborating` and `confirmed`; they reflect configured
+source weights and evidence rules, not human verification. Official or sensor
+evidence can produce `confirmed` without a second report.
+
+### Continuity and failure behavior
+
+- The shared feed caches snapshots for 45 seconds and coalesces concurrent refreshes.
+- The ledger keeps identity entries for 48 hours **in process memory**. It returns
+  the current collection, not an archive of every retained event.
+- Events expose `id`, `fused_id`, `first_observed_at`, `last_observed_at`,
+  `changed_at`, `update_count`, `change_sequence` and a lifecycle of `new`,
+  `updated` or `ongoing`.
+- Corrections to coordinates, report time, classification or evidence advance
+  the sequence. Evidence reordering and ordinary freshness/priority changes do not.
+- Partial source failures allow healthy sources to contribute. When a refresh
+  fails entirely, concurrent readers receive the last successful snapshot if
+  one exists, with a short retry cooldown. Its generation time remains old.
+- The world-event marker component polls every 90 seconds and requires coordinates
+  with sufficient location confidence. Events without usable coordinates can
+  remain in the API feed.
+
+**There is no durable event store or independent background collector yet.**
+Collection is request-driven. Restarts reset identity state and cursors; separate
+workers have separate state. The feed is capped at 300 fused events. Evidence or
+events absent from a later collection are not guaranteed to remain visible.
+
+## Event API
+
+Examples:
+
+```text
+/api/events?mappable=1&minSeverity=35&limit=80
+/api/events?category=earthquake&limit=50
+/api/events?since=0&limit=100
+/api/conflicts
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The image is a multi-stage
-`node:22-alpine` standalone build (~220 MB, non-root). The compose file also
-carries CasaOS app metadata (`x-casaos:`) for one-click install on
-[CasaOS](https://casaos.io). See **[DOCKER.md](DOCKER.md)** for the full Docker,
-CasaOS and API-key guide.
+| Parameter | Behavior |
+| --- | --- |
+| `category` | Filter by one supported category |
+| `minSeverity` | Minimum severity, clamped to 0–100; default 0 |
+| `mappable=1` | Require coordinates and location confidence of at least 0.75 |
+| `limit` | Page size, clamped to 1–300; default 200 |
+| `lifecycle` | `new`, `updated` or `ongoing` |
+| `since` | Changes after this sequence; an explicit `since=0` starts delta reading |
 
-**Prebuilt image (GHCR)** — skip the build and pull it directly:
+Categories: `conflict`, `protest`, `political`, `earthquake`, `flood`, `wildfire`,
+`volcano`, `weather`, `cyber`, `infrastructure`, `aviation`, `maritime`, `other`.
+A category in the schema does not imply that all relevant sources are integrated.
 
-```bash
-docker pull ghcr.io/simplifaisoul/osiris:latest
-docker run -d -p 3000:3000 --env-file .env ghcr.io/simplifaisoul/osiris:latest
+Without `since`, results preserve priority order. With `since`, results are
+ordered by increasing `change_sequence`. Use the returned `cursor` for the next
+delta request while `has_more` is true. `feed_cursor` identifies the full feed's
+high-water mark. Keep filters fixed while advancing a cursor; restart from zero
+when changing filters. A limited ordinary snapshot's cursor is not a pagination
+token.
+
+This supports paging through changes available in a snapshot, **not durable
+replay** across refreshes or restarts. Responses also include source health,
+source counts, generation time and aggregate category/confidence/lifecycle counts.
+Aggregate counts describe the whole feed; `total` describes the returned page.
+See the [audit](docs/unified-event-audit.md) for the complete current contract.
+
+Other APIs remain available for specialized consumers, including `/api/news`,
+`/api/live-news`, `/api/earthquakes`, `/api/fires`, `/api/weather`, `/api/flights`,
+`/api/maritime`, `/api/cctv`, `/api/satellites` and `/api/osint/*`.
+`/api/gdelt-events` reads GDELT geocoded event exports; the legacy `/api/gdelt`
+route reads GDACS despite its name. These are distinct from GDELT DOC discovery.
+Some specialized routes still collect their sources separately.
+
+## Configuration
+
+Use [`.env.example`](.env.example) as a starting point and keep credentials in
+`.env.local` for native Next.js runs, or `.env` for the Docker examples below.
+The template contains legacy options; the table below describes active integrations.
+
+| Variable | Purpose |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Radar layers and the optional unified outage adapter |
+| `AIS_API_KEY` | Live aisstream.io vessel positions |
+| `OPENSKY_CLIENT_ID`, `OPENSKY_CLIENT_SECRET` | OpenSky OAuth credentials for aviation collection |
+| `WINDY_WEBCAMS_API_KEY` | Optional Windy webcam enrichment |
+| `SCANNER_URL`, `SCANNER_KEY` | Optional scanner-backed operations; independent OSINT routes have their own implementations |
+| `ETHERSCAN_API_KEY`, `HELIUS_API_KEY` | Additional wallet-intelligence enrichment |
+| `ASTRA_GPU_URL` | Optional external ASTRA service; route default is `http://localhost:8000` |
+| `UMAMI_BASE_URL`, `UMAMI_WEBSITE_ID` | Optional analytics; leave unset for native installs without Umami |
+| `OSIRIS_DEBUG=1` | Enable upstream diagnostics in a production run |
+| `OSIRIS_PORT` | Host port substitution in Docker Compose; default 3000 |
+
+The current unified FIRMS adapter uses public CSV, not `FIRMS_API_KEY`.
+The satellite route uses CelesTrak/SatNOGS orbital data rather than `N2YO_API_KEY`.
+Missing credentials affect the corresponding integration; keyless sources can
+also fail or rate-limit independently.
+
+## Docker
+
+To build this repository's web app without the optional Compose services:
+
+```sh
+docker build -t osiris:local .
 ```
 
-**Custom port** — the container always listens on `3000`; set `OSIRIS_PORT` in
-`.env` to change the published host port (e.g. `OSIRIS_PORT=3005`) without
-editing the compose file.
+Create `.env` from `.env.example` (`Copy-Item` in PowerShell or `cp` in a POSIX
+shell), configure any required integrations, then run:
 
-### Environment Variables
-
-OSIRIS works **partially without any API keys** — all core feeds use public,
-keyless sources. Copy [`.env.template`](.env.template) to `.env` and set only
-what you need:
-
-```env
-# Published host port (container always listens on 3000). Default: 3000
-OSIRIS_PORT=3000
-
-# RECON scanner backend (the only vars the current code reads).
-# SCANNER_KEY must match the backend's OSIRIS_KEY — generate with: openssl rand -hex 32
-SCANNER_URL=
-SCANNER_KEY=
-
-# Optional, for higher rate limits / future sources (see DOCKER.md for signup links)
-FIRMS_API_KEY=                # NASA FIRMS  — firms.modaps.eosdis.nasa.gov/api/map_key/
-OPENSKY_CLIENT_ID=            # OpenSky OAuth2 (since Mar 2025) — opensky-network.org
-OPENSKY_CLIENT_SECRET=
-N2YO_API_KEY=                 # N2YO satellites — n2yo.com (Profile → API key)
-AIS_API_KEY=                 # aisstream.io maritime
+```sh
+docker run --name osiris -d -p 3000:3000 --env-file .env osiris:local
 ```
 
-> Without `SCANNER_URL`/`SCANNER_KEY` the RECON toolkit returns `503`; every
-> other layer works out of the box. `.env` is gitignored — only the template is committed.
+The Dockerfile uses Node.js 22, a Next.js standalone build and a non-root runtime.
+The image built locally reflects this checkout; an upstream project's prebuilt
+image may contain different code.
 
----
+The checked-in [`docker-compose.yml`](docker-compose.yml) additionally includes
+an nginx cache and an intel service, requires an existing external network named
+`umami_default`, and points analytics at `umami-umami-1`. Configure those deployment
+assumptions before using `docker compose up -d --build`. The direct Docker command
+above runs only the web application. Container restarts do not preserve the current
+in-memory event ledger.
 
-## Tech Stack
+## Diagnostics and validation
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Next.js 16 (App Router, Turbopack) |
-| Language | TypeScript 5 |
-| Map Engine | MapLibre GL JS (WebGL) |
-| Animations | Framer Motion |
-| Icons | Lucide React |
-| Styling | Custom CSS Design System |
-| Deployment | Vercel Edge Network |
+Open the DEBUG overlay with **Ctrl+Shift+D** or the DEBUG control. It shows API
+status, duration, correlation IDs and upstream timings. Browser and server
+histories are bounded and kept in memory; diagnostic exports omit query strings,
+request bodies and credentials. Upstream collection is enabled in development;
+production collection requires `OSIRIS_DEBUG=1`.
 
----
+Source health views help distinguish errors and partial results. Latency is
+reported as a diagnostic, not by itself as an event-source health penalty.
+`/api/health` is the runtime smoke endpoint; a successful response does not verify
+all external providers.
 
-## Keyboard Shortcuts
+```sh
+npm run doctor
+npm test
+npm run build
+npm run smoke:windows
+```
 
-| Key | Action |
-|-----|--------|
-| `F` | Toggle flight layers |
-| `E` | Toggle earthquakes |
-| `S` | Toggle satellites |
-| `D` | Toggle day/night cycle |
-| `Escape` | Close panels |
+The [Windows native workflow](.github/workflows/windows-native.yml) runs these
+checks after `npm ci` using Node.js 22. `npm run smoke:windows` requires a completed
+production build and starts a temporary server on port 3107. Live-network tests
+are opt-in through the cross-platform `npm run test:live`. Additional local checks
+are `npx tsc --noEmit` and `npm run lint`.
 
----
+## Next work and documentation maintenance
 
-## License
+The next architectural steps are a durable event/revision store with monotonic
+cursors, background ingestion, remaining report adapters (including NWS, NOAA and
+cyber advisories), and migration of additional consumers to shared ingestion.
+These are planned work, not completed capabilities. The
+[architecture audit](docs/unified-event-audit.md) records the source inventory,
+limitations and acceptance criteria.
 
-MIT — see [LICENSE](LICENSE) for details.
+Update this README in the same PR as changes to behavior, APIs, source coverage,
+configuration, setup or deployment. Keep implemented behavior separate from plans,
+verify commands and paths against the code, and update linked documentation when
+its instructions change. Repository guidance is recorded in [AGENTS.md](AGENTS.md).
 
----
+## License and origin
 
-<div align="center">
-
-**🛠️ SUPPORT THE OSIRIS PROJECT**
-The OSIRIS Global Intelligence Grid is entirely open-source, but running the backend scanners and data firehoses isn't cheap.
-
-If you want to help keep the servers alive, and support us to get access to better tools  unlock the **Special OSIRIS Console**, Currently Just a Cool UI. a you can officially support the project here : 
-
-🔗 [Support OSIRIS on Patreon](https://www.patreon.com/posts/159077425)
-
-*Supporters receive the `🔴 RedTeam Console` role and access to encrypted developer comms.*
-
-
-**Built by [simplifaisoul](https://github.com/simplifaisoul)**
-
-[Join our Discord to be a part of this movement!](https://discord.gg/umBykEpb98)
-
-</div>
+MIT; see [LICENSE](LICENSE). This repository continues work from
+[simplifaisoul/osiris](https://github.com/simplifaisoul/osiris).
+Provider data, imagery and streams retain their own terms and attribution.

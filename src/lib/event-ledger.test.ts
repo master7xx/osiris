@@ -70,6 +70,38 @@ describe('event continuity ledger', () => {
     expect(second.cursor).toBeGreaterThan(first.cursor);
   });
 
+  it.each<Partial<FusedEvent>>([
+    { lat: 53.95 },
+    { lng: 27.6 },
+    { location_confidence: 0.99 },
+    { description: 'Revised report' },
+    { occurred_at: '2026-09-12T07:59:00Z' },
+    { category: 'protest', categories: ['protest'] },
+    { urls: ['https://a.test/corrected'] },
+    { evidence: [{ ...event().evidence[0], independent: false }] },
+  ])('advances the change cursor for corrected report content: %j', correction => {
+    const first = applyEventLedger([event()]);
+    const next = applyEventLedger([event(correction)]);
+    expect(next.events[0].id).toBe(first.events[0].id);
+    expect(next.events[0].lifecycle).toBe('updated');
+    expect(next.cursor).toBeGreaterThan(first.cursor);
+  });
+
+  it('ignores evidence ordering and freshness when deciding whether content changed', () => {
+    const initial = event({
+      evidence: [...event().evidence, { ...event().evidence[0], source_id: 'news:b', source: 'B' }],
+      sources: ['A', 'B'], urls: ['https://a.test/1', 'https://b.test/1'],
+    });
+    const first = applyEventLedger([initial]);
+    const next = applyEventLedger([{
+      ...initial, evidence: [...initial.evidence].reverse(), sources: ['B', 'A'],
+      urls: [...initial.urls].reverse(), priority_score: 40, age_minutes: 60,
+      last_seen_at: '2026-09-12T09:00:00Z',
+    }]);
+    expect(next.cursor).toBe(first.cursor);
+    expect(next.events[0].lifecycle).toBe('ongoing');
+  });
+
   it('does not merge separate earthquake events merely because they are nearby', () => {
     const a = event({ id: 'eq-a', category: 'earthquake', categories: ['earthquake'], title: 'M5.1 earthquake — region A', lat: 35.1, lng: 140.1 });
     const b = event({ id: 'eq-b', category: 'earthquake', categories: ['earthquake'], title: 'M4.7 earthquake — region B', lat: 35.2, lng: 140.2, occurred_at: '2026-09-12T08:40:00Z', urls: ['https://b.test/eq'] });
