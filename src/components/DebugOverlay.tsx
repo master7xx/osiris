@@ -12,6 +12,10 @@ import { installDebugFetch } from '@/lib/debug-fetch';
 import RegionDossierStatus from '@/components/RegionDossierStatus';
 
 type DebugMode = 'all' | 'errors' | 'slow' | 'news';
+type DebugSize = 'full' | 'half' | 'third';
+const DEBUG_SIZES: DebugSize[] = ['full', 'half', 'third'];
+const DEBUG_HEIGHTS = { full: '86dvh', half: '50dvh', third: '33.333dvh' };
+const DEBUG_SIZE_LABELS = { full: 'FULL', half: '1/2', third: '1/3' };
 const BLUE = '#0788FF';
 const CYAN = '#2BD9FF';
 const SLOW_MS = 1000;
@@ -53,13 +57,15 @@ export default function DebugOverlay() {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [mode, setMode] = useState<DebugMode>('all');
-  const [, setTick] = useState(0);
+  const [size, setSize] = useState<DebugSize>('full');
+  const nextSize = DEBUG_SIZES[(DEBUG_SIZES.indexOf(size) + 1) % DEBUG_SIZES.length];
+  const [now, setNow] = useState(() => Date.now());
 
   useSyncExternalStore(subscribeDebugEvents, getDebugEventsVersion, () => 0);
 
   useEffect(() => installDebugFetch(), []);
   useEffect(() => {
-    const timer = window.setInterval(() => setTick(value => value + 1), 1000);
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -147,14 +153,16 @@ export default function DebugOverlay() {
         <section
           aria-label="OSIRIS Debug"
           style={{
-            position: 'fixed', inset: '7vh 3vw 7vh', zIndex: 2147482999, display: 'flex', flexDirection: 'column',
+            position: 'fixed', left: '3vw', right: '3vw', bottom: '7dvh', height: DEBUG_HEIGHTS[size],
+            minHeight: 'min(260px, 86dvh)', maxHeight: '86dvh',
+            zIndex: 2147482999, display: 'flex', flexDirection: 'column',
             background: 'rgba(3,10,20,.975)', border: `1px solid ${CYAN}`,
             boxShadow: '0 0 0 1px rgba(7,136,255,.45), 0 0 38px rgba(7,136,255,.30), 0 28px 90px rgba(0,0,0,.72)',
             color: '#E8F4FF', font: '12px ui-monospace, SFMono-Regular, Consolas, monospace', borderRadius: 6,
           }}
         >
-          <header style={{ padding: '10px 12px', borderBottom: '1px solid rgba(43,217,255,.32)', background: 'linear-gradient(90deg, rgba(7,136,255,.18), rgba(3,10,20,.2))' }}>
-            <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+          <header style={{ flexShrink: 0, maxHeight: '50%', overflow: 'auto', padding: '10px 12px', borderBottom: '1px solid rgba(43,217,255,.32)', background: 'linear-gradient(90deg, rgba(7,136,255,.18), rgba(3,10,20,.2))' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9, alignItems: 'center' }}>
               <strong style={{ letterSpacing: '.14em', color: CYAN, fontSize: 13 }}>OSIRIS / DEBUG</strong>
               <span style={{ width: 7, height: 7, borderRadius: 999, background: pending ? CYAN : '#29E58C', boxShadow: `0 0 9px ${pending ? CYAN : '#29E58C'}` }} />
               <span style={{ color: '#8EA9C0' }}>{events.length} requests · {pending} pending · {failures} failed · {slow} slow</span>
@@ -163,8 +171,15 @@ export default function DebugOverlay() {
                 onChange={event => setFilter(event.target.value)}
                 placeholder="endpoint / upstream / error"
                 aria-label="Filter debug endpoints"
-                style={{ marginLeft: 'auto', width: 260, background: '#06111E', border: '1px solid rgba(43,217,255,.36)', color: '#E8F4FF', padding: '6px 8px', borderRadius: 4 }}
+                style={{ marginLeft: 'auto', width: 260, maxWidth: '100%', background: '#06111E', border: '1px solid rgba(43,217,255,.36)', color: '#E8F4FF', padding: '6px 8px', borderRadius: 4 }}
               />
+              <button
+                type="button"
+                onClick={() => setSize(nextSize)}
+                aria-label={`Debug window size: ${DEBUG_SIZE_LABELS[size]}. Switch to ${DEBUG_SIZE_LABELS[nextSize]}`}
+                title={`Switch to ${DEBUG_SIZE_LABELS[nextSize]} height`}
+                style={{ color: CYAN, border: '1px solid rgba(43,217,255,.5)', borderRadius: 4, padding: '5px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >SIZE: {DEBUG_SIZE_LABELS[size]}</button>
               <button onClick={exportLog} style={{ color: CYAN }}>EXPORT</button>
               <button onClick={clearAll} style={{ color: CYAN }}>CLEAR</button>
               <button onClick={() => setOpen(false)} style={{ color: '#FFF' }}>CLOSE</button>
@@ -177,7 +192,7 @@ export default function DebugOverlay() {
             </div>
           </header>
 
-          <div style={{ overflow: 'auto', flex: 1 }}>
+          <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', whiteSpace: 'nowrap' }}>
               <thead style={{ position: 'sticky', top: 0, background: '#071321', color: '#7CCFFF', zIndex: 2 }}>
                 <tr>
@@ -188,7 +203,7 @@ export default function DebugOverlay() {
               </thead>
               <tbody>
                 {filtered.flatMap(event => {
-                  const elapsed = event.status === 'pending' ? Date.now() - event.startedAt : event.durationMs;
+                  const elapsed = event.status === 'pending' ? Math.max(0, now - event.startedAt) : event.durationMs;
                   const failed = event.status === 'error' || event.status === 'aborted';
                   const slowMain = Number(elapsed || 0) >= SLOW_MS;
                   const main = (
@@ -224,7 +239,7 @@ export default function DebugOverlay() {
               </tbody>
             </table>
           </div>
-          <footer style={{ padding: '8px 10px', borderTop: '1px solid rgba(43,217,255,.22)', color: '#66829A', display: 'flex', justifyContent: 'space-between' }}>
+          <footer style={{ flexShrink: 0, flexWrap: 'wrap', gap: 4, padding: '8px 10px', borderTop: '1px solid rgba(43,217,255,.22)', color: '#66829A', display: 'flex', justifyContent: 'space-between' }}>
             <span>Query strings, bodies, auth/cookies and request headers are not stored.</span>
             <span style={{ color: '#6FAFD8' }}>Ctrl+Shift+D · upstream correlation enabled</span>
           </footer>

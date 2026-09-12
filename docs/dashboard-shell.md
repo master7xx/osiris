@@ -45,8 +45,10 @@ the application's connection check, not the health of all upstream providers.
 - The local Next development runtime hits `uv_resident_set_memory` in this
   environment; the cloud browser also rejected the localhost preview address.
   No browser screenshot or interactive validation is claimed.
-- Windows CI must pass before merge.
-- Keep this PR a draft until browser checks cover desktop and narrow widths,
+- The user verified the desktop shell locally, supplied screenshots and approved
+  merging it. The requested DEBUG size toggle was added afterward; Windows CI
+  must pass on that final commit before merge.
+- Additional browser coverage remains useful for desktop and narrow widths,
   visible map resizing, opening/closing docks, compact flyouts, scroll reachability,
   keyboard focus, L shortcut, existing tools and saved-style/URL restoration.
   Check 1920x1080, 1440x900, 1366x768, 1024x768 and phone layout, plus browser zoom.
@@ -57,3 +59,11 @@ Move the news list and world-event marker selection to one client-side snapshot
 from `/api/events`, with category/severity/confidence filters and shared selected
 ID. Then refine the event card, source-health states and DEBUG sizing. The existing
 latest-state API limitations remain until durable storage is implemented.
+
+## DEBUG size follow-up
+
+The SIZE button cycles FULL → 1/2 → 1/3 → FULL. Compact windows stay bottom-aligned
+and leave the upper map available. A 260 px minimum (capped by available viewport
+height) keeps controls usable on small displays. The table scrolls independently;
+filters, events and size remain intact across close/reopen within the same page.
+The header wraps its controls and remains scrollable if height is constrained.

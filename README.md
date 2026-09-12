@@ -82,7 +82,8 @@ the corresponding header control; Escape closes a focused side panel.
 
 This is the first interface implementation stage. The right panel still uses
 `IntelFeed` and `/api/news`; it has not yet been migrated to the shared event
-snapshot or synchronized event selection. DEBUG retains its existing layout.
+snapshot or synchronized event selection. DEBUG offers a SIZE button that cycles between its near-full-screen view, half
+and one-third of the screen height, with compact views anchored at the bottom.
 See [shell implementation notes](docs/dashboard-shell.md) for the changes and
 remaining browser validation, and [PR #31](https://github.com/master7xx/osiris/pull/31)
 for the proposed full interface plan.
@@ -256,7 +257,10 @@ in-memory event ledger.
 Open the DEBUG overlay with **Ctrl+Shift+D** or the DEBUG control. It shows API
 status, duration, correlation IDs and upstream timings. Browser and server
 histories are bounded and kept in memory; diagnostic exports omit query strings,
-request bodies and credentials. Upstream collection is enabled in development;
+request bodies and credentials. The **SIZE: FULL / 1/2 / 1/3** button changes the
+window height without clearing filters or the log. Small screens use a minimum
+usable height; the selected size is retained when closing and reopening DEBUG
+until the page reloads. Upstream collection is enabled in development;
 production collection requires `OSIRIS_DEBUG=1`.
 
 Source health views help distinguish errors and partial results. Latency is
