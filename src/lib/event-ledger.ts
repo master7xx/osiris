@@ -84,15 +84,33 @@ function matches(a: FusedEvent, b: ContinuousEvent) {
 }
 
 function materialChange(previous: ContinuousEvent, next: FusedEvent) {
-  if (previous.confidence !== next.confidence) return true;
-  if (previous.source_count !== next.source_count) return true;
-  if (previous.independent_sources !== next.independent_sources) return true;
-  if (previous.severity !== next.severity) return true;
-  if (previous.title !== next.title) return true;
-  if (previous.location !== next.location) return true;
-  if (previous.urls.length !== next.urls.length) return true;
-  if (previous.evidence.length !== next.evidence.length) return true;
-  return false;
+  // Compare report content, excluding identity, observation clocks and derived
+  // freshness/priority. Reordering evidence must not create a new revision.
+  const content = (event: FusedEvent) => JSON.stringify({
+    title: event.title,
+    description: event.description,
+    category: event.category,
+    categories: [...event.categories].sort(),
+    occurred_at: toMs(event.occurred_at),
+    lat: event.lat,
+    lng: event.lng,
+    location: event.location,
+    location_confidence: event.location_confidence,
+    confidence: event.confidence,
+    severity: event.severity,
+    status: event.status,
+    source_count: event.source_count,
+    independent_sources: event.independent_sources,
+    evidence_weight: event.evidence_weight,
+    sources: [...event.sources].sort(),
+    urls: [...event.urls].sort(),
+    tags: [...event.tags].sort(),
+    evidence: event.evidence.map(item => JSON.stringify([
+      item.source_id, item.source, item.kind, item.independent, item.weight,
+      item.url, toMs(item.published_at),
+    ])).sort(),
+  });
+  return content(previous) !== content(next);
 }
 
 function prune(now: number) {

@@ -25,24 +25,32 @@ export async function GET(request: Request) {
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(300, Math.round(limitRaw))) : 200;
     const sinceRaw = Number(url.searchParams.get('since') ?? '0');
     const since = Number.isFinite(sinceRaw) ? Math.max(0, Math.floor(sinceRaw)) : 0;
+    const delta = url.searchParams.has('since');
     const mappableOnly = url.searchParams.get('mappable') === '1';
 
     const feed = await getUnifiedEventFeed();
-    const events = feed.events
+    const matching = feed.events
       .filter(event => !category || event.category === category)
       .filter(event => !lifecycle || event.lifecycle === lifecycle)
       .filter(event => event.severity >= minSeverity)
       .filter(event => event.change_sequence > since)
-      .filter(event => !mappableOnly || (typeof event.lat === 'number' && typeof event.lng === 'number' && event.location_confidence >= 0.75))
-      .slice(0, limit);
+      .filter(event => !mappableOnly || (typeof event.lat === 'number' && typeof event.lng === 'number' && event.location_confidence >= 0.75));
+    // A delta page must advance in sequence order. Advancing to the feed's
+    // high-water mark after a priority-sorted slice skips undelivered changes.
+    if (delta) matching.sort((a, b) => a.change_sequence - b.change_sequence);
+    const events = matching.slice(0, limit);
+    const hasMore = matching.length > events.length;
+    const cursor = delta && hasMore ? events[events.length - 1].change_sequence : feed.cursor;
 
     return NextResponse.json({
       ...feed,
       events,
       total: events.length,
       total_before_filter: feed.total,
-      cursor: feed.cursor,
-      delta: since > 0,
+      cursor,
+      feed_cursor: feed.cursor,
+      has_more: hasMore,
+      delta,
       filters: {
         category: category ?? null,
         lifecycle: lifecycle ?? null,
