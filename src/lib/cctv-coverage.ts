@@ -2,6 +2,8 @@ import { classifyCctvProvider, type CctvProviderId } from './cctv-provider-healt
 
 export type CctvCoverageBand = 'gap' | 'sparse' | 'covered' | 'dense';
 export type CctvFeedKind = 'snapshot' | 'hls' | 'iframe' | 'mjpeg' | 'video' | 'external' | 'unknown';
+export type CctvPriorityTier = 1 | 2 | 3;
+export type CctvPriorityStatus = 'missing' | 'weak' | 'covered';
 export type CctvMacroRegionId =
   | 'north-america'
   | 'europe'
@@ -32,6 +34,11 @@ export interface CctvCountryCoverage {
   cameras: number;
 }
 
+export interface CctvPriorityCountryCoverage extends CctvCountryCoverage {
+  tier: CctvPriorityTier;
+  status: CctvPriorityStatus;
+}
+
 export interface CctvMacroCoverage {
   id: CctvMacroRegionId;
   label: string;
@@ -46,6 +53,7 @@ export interface CctvMacroCoverage {
   watchlist_seen: number;
   watchlist_missing: string[];
   watchlist_weak: string[];
+  priority_tier?: CctvPriorityTier;
   gap_score: number;
 }
 
@@ -57,6 +65,7 @@ export interface CctvCoverageSnapshot {
   suspected_duplicates: number;
   request_regions: string[];
   priority_regions: CctvMacroRegionId[];
+  priority_countries: CctvPriorityCountryCoverage[];
   generated_at: string;
   regions: CctvMacroCoverage[];
 }
@@ -95,19 +104,54 @@ const REGION_ORDER: CctvMacroRegionId[] = [
 ];
 
 /**
- * Strategic country watchlists, not a claim of exhaustive political geography.
- * They exist to answer a practical integration question: which globally useful
- * areas are still missing or represented by only a handful of cameras?
+ * CCTV expansion is intentionally frozen outside these country tiers.
+ * Existing cameras elsewhere remain visible and counted, but their gaps do not
+ * create implementation priorities.
  */
+export const CCTV_PRIORITY_TIERS: ReadonlyArray<{
+  tier: CctvPriorityTier;
+  countries: readonly string[];
+}> = [
+  { tier: 1, countries: ['Belarus', 'Poland', 'Russia'] },
+  { tier: 2, countries: ['Ukraine', 'Latvia', 'Lithuania'] },
+  { tier: 3, countries: ['Armenia', 'Azerbaijan', 'Georgia', 'Tajikistan', 'Turkmenistan'] },
+];
+
+const PRIORITY_TIER_BY_COUNTRY = new Map<string, CctvPriorityTier>();
+for (const group of CCTV_PRIORITY_TIERS) {
+  for (const country of group.countries) PRIORITY_TIER_BY_COUNTRY.set(country, group.tier);
+}
+
+/** Only these countries contribute to gap scoring. */
 const WATCHLISTS: Record<CctvMacroRegionId, string[]> = {
+  'north-america': [],
+  europe: ['Belarus', 'Poland', 'Ukraine', 'Latvia', 'Lithuania'],
+  'russia-eurasia': ['Russia', 'Armenia', 'Azerbaijan', 'Georgia', 'Tajikistan', 'Turkmenistan'],
+  'east-asia': [],
+  'southeast-asia': [],
+  'south-asia': [],
+  'middle-east': [],
+  africa: [],
+  'latam-caribbean': [],
+  oceania: [],
+  other: [],
+};
+
+/**
+ * Country-to-macro hints are deliberately broader than the priority watchlist.
+ * This preserves useful global coverage classification while keeping expansion
+ * priorities frozen outside the target countries.
+ */
+const COUNTRY_REGION_HINTS: Partial<Record<CctvMacroRegionId, string[]>> = {
   'north-america': ['United States', 'Canada', 'Mexico'],
   europe: [
     'United Kingdom', 'France', 'Germany', 'Spain', 'Italy', 'Netherlands',
-    'Poland', 'Ukraine', 'Finland', 'Sweden', 'Norway', 'Romania', 'Greece',
+    'Poland', 'Belarus', 'Ukraine', 'Latvia', 'Lithuania', 'Finland', 'Sweden',
+    'Norway', 'Romania', 'Greece',
   ],
   'russia-eurasia': [
-    'Russia', 'Kazakhstan', 'Belarus', 'Georgia', 'Armenia', 'Azerbaijan',
-    'Uzbekistan', 'Kyrgyzstan',
+    'Russia', 'Kazakhstan', 'Georgia', 'Armenia', 'Azerbaijan', 'Uzbekistan',
+    'Kyrgyzstan', 'Tajikistan', 'Turkmenistan',
   ],
   'east-asia': ['Japan', 'South Korea', 'China', 'Taiwan', 'Hong Kong', 'Mongolia'],
   'southeast-asia': ['Indonesia', 'Thailand', 'Vietnam', 'Philippines', 'Malaysia', 'Singapore'],
@@ -116,7 +160,6 @@ const WATCHLISTS: Record<CctvMacroRegionId, string[]> = {
   africa: ['South Africa', 'Egypt', 'Morocco', 'Algeria', 'Tunisia', 'Nigeria', 'Kenya', 'Ethiopia', 'Ghana', 'Tanzania'],
   'latam-caribbean': ['Brazil', 'Argentina', 'Chile', 'Colombia', 'Peru', 'Venezuela', 'Ecuador', 'Uruguay'],
   oceania: ['Australia', 'New Zealand', 'Papua New Guinea', 'Fiji'],
-  other: [],
 };
 
 const ALIASES: Record<string, string> = {
@@ -128,6 +171,18 @@ const ALIASES: Record<string, string> = {
   'great britain': 'United Kingdom',
   'russian federation': 'Russia',
   ru: 'Russia',
+  by: 'Belarus',
+  'republic of belarus': 'Belarus',
+  pl: 'Poland',
+  ua: 'Ukraine',
+  lv: 'Latvia',
+  lt: 'Lithuania',
+  am: 'Armenia',
+  az: 'Azerbaijan',
+  ge: 'Georgia',
+  tj: 'Tajikistan',
+  tm: 'Turkmenistan',
+  turkmenia: 'Turkmenistan',
   jp: 'Japan',
   'republic of korea': 'South Korea',
   korea: 'South Korea',
@@ -148,7 +203,7 @@ const ALIASES: Record<string, string> = {
 
 const COUNTRY_REGION = new Map<string, CctvMacroRegionId>();
 for (const region of REGION_ORDER) {
-  for (const country of WATCHLISTS[region]) COUNTRY_REGION.set(country, region);
+  for (const country of COUNTRY_REGION_HINTS[region] ?? []) COUNTRY_REGION.set(country, region);
 }
 
 function normalizeKey(value: string) {
@@ -243,12 +298,21 @@ function coverageBand(cameras: number): CctvCoverageBand {
   return 'dense';
 }
 
-function gapScore(cameras: number, watchlist: string[], missing: string[], weak: string[]) {
-  if (!watchlist.length) return cameras === 0 ? 100 : cameras < 10 ? 60 : 0;
-  const densityPenalty = cameras === 0 ? 40 : cameras < 10 ? 30 : cameras < 50 ? 15 : cameras < 100 ? 5 : 0;
+function gapScore(targetCameras: number, watchlist: string[], missing: string[], weak: string[]) {
+  if (!watchlist.length || (missing.length === 0 && weak.length === 0)) return 0;
+  const densityPenalty = targetCameras === 0 ? 40 : targetCameras < 10 ? 30 : targetCameras < 50 ? 15 : targetCameras < 100 ? 5 : 0;
   const missingPenalty = (missing.length / watchlist.length) * 50;
   const weakPenalty = (weak.length / watchlist.length) * 10;
   return Math.min(100, Math.round(densityPenalty + missingPenalty + weakPenalty));
+}
+
+function lowestPriorityTier(countries: string[]): CctvPriorityTier | undefined {
+  let tier: CctvPriorityTier | undefined;
+  for (const country of countries) {
+    const candidate = PRIORITY_TIER_BY_COUNTRY.get(country);
+    if (candidate !== undefined && (tier === undefined || candidate < tier)) tier = candidate;
+  }
+  return tier;
 }
 
 export function analyzeCctvCoverage(
@@ -259,13 +323,18 @@ export function analyzeCctvCoverage(
   for (const region of REGION_ORDER) grouped.set(region, []);
 
   const countries = new Set<string>();
+  const globalCountryCounts = new Map<string, number>();
   let unknownCountry = 0;
   for (const camera of cameras) {
     const region = classifyCctvMacroRegion(camera);
     grouped.get(region)?.push(camera);
     const country = normalizeCctvCountry(camera.country);
-    if (country) countries.add(country);
-    else unknownCountry += 1;
+    if (country) {
+      countries.add(country);
+      globalCountryCounts.set(country, (globalCountryCounts.get(country) ?? 0) + 1);
+    } else {
+      unknownCountry += 1;
+    }
   }
 
   const regions = REGION_ORDER.map((id): CctvMacroCoverage => {
@@ -287,6 +356,8 @@ export function analyzeCctvCoverage(
       const count = countryCounts.get(country) ?? 0;
       return count > 0 && count < 5;
     });
+    const targetCameras = watchlist.reduce((sum, country) => sum + (countryCounts.get(country) ?? 0), 0);
+    const priorityTier = lowestPriorityTier([...missing, ...weak]);
 
     return {
       id,
@@ -304,14 +375,37 @@ export function analyzeCctvCoverage(
       watchlist_seen: watchlist.length - missing.length,
       watchlist_missing: missing,
       watchlist_weak: weak,
-      gap_score: gapScore(rows.length, watchlist, missing, weak),
+      priority_tier: priorityTier,
+      gap_score: gapScore(targetCameras, watchlist, missing, weak),
     };
   });
 
+  const priorityCountries = CCTV_PRIORITY_TIERS.flatMap(group => group.countries.map(country => {
+    const camerasForCountry = globalCountryCounts.get(country) ?? 0;
+    const status: CctvPriorityStatus = camerasForCountry === 0
+      ? 'missing'
+      : camerasForCountry < 5
+        ? 'weak'
+        : 'covered';
+    return {
+      country,
+      tier: group.tier,
+      cameras: camerasForCountry,
+      status,
+    } satisfies CctvPriorityCountryCoverage;
+  })).sort((a, b) => {
+    const statusRank: Record<CctvPriorityStatus, number> = { missing: 0, weak: 1, covered: 2 };
+    return a.tier - b.tier
+      || statusRank[a.status] - statusRank[b.status]
+      || a.cameras - b.cameras
+      || a.country.localeCompare(b.country);
+  });
+
   const priority = regions
-    .filter(region => region.id !== 'other' && region.gap_score > 0)
-    .sort((a, b) => b.gap_score - a.gap_score || a.cameras - b.cameras)
-    .slice(0, 5)
+    .filter(region => region.watchlist_total > 0 && region.gap_score > 0)
+    .sort((a, b) => (a.priority_tier ?? 99) - (b.priority_tier ?? 99)
+      || b.gap_score - a.gap_score
+      || a.cameras - b.cameras)
     .map(region => region.id);
 
   return {
@@ -322,6 +416,7 @@ export function analyzeCctvCoverage(
     suspected_duplicates: duplicateCount(cameras),
     request_regions: [...(options.requestRegions ?? [])],
     priority_regions: priority,
+    priority_countries: priorityCountries,
     generated_at: new Date(options.now ?? Date.now()).toISOString(),
     regions,
   };
