@@ -487,3 +487,9 @@ Camera JPG loading is labelled `SOURCE SNAPSHOT` / `IMAGE LOADED · UNVERIFIED`.
 A successful image request can contain an operator outage placeholder and does
 not prove camera availability or recording. Placeholder-image recognition is
 not implemented; the operator's notice remains visible in the supplied image.
+
+The desktop shell keeps labelled `Layers` and `Events` controls in its header.
+Collapsed or hidden panels also expose an edge button to reopen them. `Alerts`
+opens the shared WORLD EVENTS / SOURCES panel and preserves its current filters;
+it no longer toggles a separate alerts popover. Repeated Alerts clicks leave the
+feed open. Narrow desktop layouts show one expanded side panel at a time.

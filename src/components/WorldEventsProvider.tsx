@@ -11,6 +11,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   const [filters, setFilters] = useState<EventFilters>(DEFAULT_EVENT_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mapSelection, setMapSelection] = useState(0);
+  const [panelRequest, setPanelRequest] = useState(0);
   const [locateRequest, setLocateRequest] = useState<{ id: string; version: number } | null>(null);
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -56,12 +57,13 @@ function useWorldEventsState(onMapSelect: () => void) {
   const view = useMemo(() => projectWorldEvents(snapshot?.events ?? [], filters, now), [snapshot, filters, now]);
   const events = view.events;
   const mappable = useMemo(() => events.filter(isMappable), [events]);
+  const openFeed = useCallback(() => { setPanelRequest(value => value + 1); onMapSelectRef.current(); }, []);
   const selectEvent = useCallback((id: string, origin: 'map' | 'list') => {
     setSelectedId(id);
-    if (origin === 'map') { setMapSelection(value => value + 1); onMapSelectRef.current(); }
+    if (origin === 'map') { setMapSelection(value => value + 1); openFeed(); }
     else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
-  }, []);
-  return { snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
+  }, [openFeed]);
+  return { openFeed, panelRequest, snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
     enabled, setEnabled, loading, error, refresh, fromCache,
     stale: !!snapshot && (fromCache || now - Date.parse(snapshot.generated_at) > 180000),
     partial: !!snapshot && (snapshot.healthy_sources < snapshot.source_count || snapshot.source_health.some(source => source.state !== 'healthy')) };
