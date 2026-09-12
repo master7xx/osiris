@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
+import DashboardShell from '@/components/DashboardShell';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
 import SearchBar from '@/components/SearchBar';
@@ -903,6 +904,15 @@ export default function Dashboard() {
 
   return (
     <main className="fixed inset-0 w-full h-full bg-[var(--bg-void)] overflow-hidden">
+      <DashboardShell
+        mobile={isMobile}
+        navigationVisible={showLayers}
+        onShowNavigation={() => setShowLayers(true)}
+        navigation={compact => <LayerPanel docked compact={compact} data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />}
+        news={<IntelFeed data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} />}
+        search={<SearchBar onLocate={(lat, lng, zoom) => setFlyToLocation({ lat, lng, zoom, ts: Date.now() })} />}
+        status={<><ZuluClock /><span title="Application backend connection; not aggregate source health">API: <span className={backendStatus === 'connected' ? 'text-[var(--alert-green)]' : 'text-[var(--alert-orange)]'}>{backendStatus.toUpperCase()}</span></span><span className="dashboard-optional-status"><ActiveEntityCount data={data} /> ENTITIES</span><TokenPanel /></>}
+      >
 
       {/* ── SPLASH ── */}
       <AnimatePresence>
@@ -1239,6 +1249,7 @@ export default function Dashboard() {
         )}
       </motion.div>
 
+      {isMobile && <>
       {/* ── HEADER ── */}
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 2.5 }} className={`absolute top-4 z-[200] pointer-events-none flex flex-col`} style={{ left: isMobile ? '24px' : '64px', right: '24px' }}>
         <div className="flex items-center gap-3 w-fit">
@@ -1306,10 +1317,7 @@ export default function Dashboard() {
 
 
 
-      {/* ── NEW SIDEBAR (Root Level) ── */}
-      {showLayers && !isMobile && <LayerPanel data={data} activeLayers={activeLayers} setActiveLayers={setActiveLayers} theme={osirisTheme} setTheme={setOsirisTheme} capabilities={capabilities} />}
-
-
+      </>}
 
       {/* ── RIGHT TOOL STRIP (desktop only — mobile uses bottom nav) ── */}
       {!isMobile && <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-[250] pointer-events-auto bg-black/40 backdrop-blur-sm p-1 rounded-full border border-white/5">
@@ -1847,6 +1855,7 @@ export default function Dashboard() {
       </div>
 
 
+      </DashboardShell>
     </main>
   );
 }
