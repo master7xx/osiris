@@ -1,3 +1,4 @@
+import { currentEventReports } from '@/lib/current-event-reports';
 import { NextResponse } from 'next/server';
 import { getUnifiedEventFeed } from '@/lib/event-feed';
 import type { EventLifecycle } from '@/lib/event-ledger';
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     const mappableOnly = url.searchParams.get('mappable') === '1';
 
     const feed = await getUnifiedEventFeed();
-    const matching = feed.events
+    const matching = currentEventReports(feed.events, Date.now())
       .filter(event => !category || event.category === category)
       .filter(event => !lifecycle || event.lifecycle === lifecycle)
       .filter(event => event.severity >= minSeverity)

@@ -63,6 +63,7 @@ function matches(a: FusedEvent, b: ContinuousEvent) {
   if (a.id === b.fused_id) return true;
   if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (urlOverlap(a, b)) return true;
+  if (a.evidence.some(e => e.source_id === 'noaa-nws') && b.evidence.some(e => e.source_id === 'noaa-nws')) return false;
 
   const timeDelta = Math.abs(toMs(a.occurred_at) - toMs(b.occurred_at));
   if (timeDelta > 12 * 60 * 60_000) return false;
@@ -101,6 +102,8 @@ function materialChange(previous: ContinuousEvent, next: FusedEvent) {
     confidence: event.confidence,
     severity: event.severity,
     status: event.status,
+    withdrawn: event.withdrawn,
+    supersedes: [...(event.supersedes ?? [])].sort(),
     source_count: event.source_count,
     independent_sources: event.independent_sources,
     evidence_weight: event.evidence_weight,

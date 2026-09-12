@@ -1,3 +1,4 @@
+import { fetchNwsEvents } from './nws-alerts';
 import { centroidFor } from './countryCentroids';
 import type { EventCategory, IncomingEvent } from './event-fusion';
 import type { EventSourceHealth } from './event-sources';
@@ -431,6 +432,7 @@ async function runAdapter(adapter: SignalAdapter): Promise<{ events: IncomingEve
 
 export async function collectSupplementalEventSignals(): Promise<SupplementalEventSignals> {
   const adapters: SignalAdapter[] = [
+    { id: 'noaa-nws', label: 'NOAA / NWS Alerts', fetch: fetchNwsEvents },
     { id: 'nasa-eonet', label: 'NASA EONET', fetch: fetchEonetEvents },
     { id: 'nasa-firms', label: 'NASA FIRMS', fetch: fetchFirmsEvents },
   ];

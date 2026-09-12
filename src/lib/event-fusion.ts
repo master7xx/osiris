@@ -42,6 +42,8 @@ export interface IncomingEvent {
   severity: number;
   evidence: EventEvidence[];
   tags?: string[];
+  supersedes?: string[];
+  withdrawn?: boolean;
   source_count_hint?: number;
   independent_sources_hint?: number;
   evidence_weight_hint?: number;
@@ -71,6 +73,8 @@ export interface FusedEvent {
   evidence_weight: number;
   urls: string[];
   tags: string[];
+  supersedes?: string[];
+  withdrawn?: boolean;
   age_minutes: number;
 }
 
@@ -152,10 +156,13 @@ function evidenceUrls(event: IncomingEvent) {
 
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
+  if (Boolean(a.withdrawn) !== Boolean(b.withdrawn)) return false;
   if (a.id === b.id) return true;
 
   const urlsA = evidenceUrls(a);
   if (b.evidence.some(item => item.url && urlsA.has(item.url))) return true;
+
+  if (a.evidence.some(e => e.source_id === 'noaa-nws') && b.evidence.some(e => e.source_id === 'noaa-nws')) return false;
 
   const timeDelta = Math.abs(toMs(a.occurred_at) - toMs(b.occurred_at));
   if (!Number.isFinite(timeDelta) || timeDelta > 8 * 60 * 60_000) return false;
@@ -278,6 +285,8 @@ function fuseCluster(items: IncomingEvent[], now: number): FusedEvent {
     evidence_weight: Number(weight.toFixed(2)),
     urls: [...new Set(evidence.map(item => item.url).filter((url): url is string => Boolean(url)))],
     tags: [...new Set(items.flatMap(item => item.tags ?? []))],
+    ...(items.some(item => item.supersedes?.length) ? { supersedes: [...new Set(items.flatMap(item => item.supersedes ?? []))].sort() } : {}),
+    ...(items.every(item => item.withdrawn) ? { withdrawn: true } : {}),
     age_minutes: ageMinutes,
   };
 }

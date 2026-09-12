@@ -5,6 +5,9 @@ export function canonicalReportUrl(value: string): string {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol)) return value;
     url.hash = '';
+    if (url.hostname === 'api.weather.gov' && url.pathname.startsWith('/alerts/')) {
+      url.pathname = '/alerts/' + encodeURIComponent(decodeURIComponent(url.pathname.slice(8)));
+    }
     if (url.hostname === 't.me' || url.hostname === 'telegram.me') {
       url.hostname = 't.me'; url.protocol = 'https:';
       url.pathname = url.pathname.replace(/^\/s\//, '/').replace(/\/$/, '');

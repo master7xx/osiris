@@ -501,3 +501,33 @@ Distinct URLs are not merged merely because titles look alike. Place matching
 uses word boundaries to avoid matching Aden inside unrelated words; Leipzig is
 recognized explicitly. Existing persisted location metadata is corrected by a
 subsequent successful source refresh, not a database rewrite.
+
+### NOAA / NWS warning adapter
+
+The shared collector and snapshot feed now ingest NOAA/NWS active U.S. warnings
+through the same fetch helper used by `/api/weather`. No internal HTTP calls or
+browser database are added. Official source links, CAP message IDs, descriptions
+and instructions are retained. Flood warnings use `flood`; other warnings use
+`weather` (a fire-weather warning is not a detected wildfire). Test/exercise messages and malformed timestamps are excluded. Cancellation
+and expired update messages with explicit references are retained as lifecycle
+records; they do not appear as active warning cards. Distinct NWS message IDs do not fuzzy-merge with one another.
+
+Only supplied Point geometry qualifies for a precise map marker. Polygon area
+representatives have lower location confidence; warnings without geometry remain
+in the list. `expires:` metadata hides expired warnings from the shared client
+view even offline, while server history is retained. Explicit CAP references suppress superseded warnings and early cancellations
+in the current feed, including restored client caches. Active warnings plus the
+last 48 hours of messages are fetched with bounded pagination and a shared
+deadline per collection. Failure of either collection preserves the previous
+checkpoint rather than publishing an incomplete refresh. An absent warning
+without an explicit cancellation remains until its declared expiry. NOAA SWPC space-weather
+streams remain separate and are not part of this adapter.
+
+Protocol reference: [NWS API documentation](https://www.weather.gov/documentation/services-web-api).
+
+NWS lifecycle records preserve `supersedes` source URLs and `withdrawn` state
+through fusion, event revisions and client checkpoints. Lifecycle is applied
+before Category filtering and the display limit; cancelled reports remain in
+server history. Old clients must refresh to use these semantics. Outages longer
+than the 48-hour replay window require a fresh snapshot; this is not a guarantee
+of full historical CAP-chain reconstruction.
