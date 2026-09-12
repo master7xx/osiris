@@ -69,8 +69,15 @@ function matches(a: FusedEvent, b: ContinuousEvent) {
   const similarity = eventTitleSimilarity(a.title, b.title);
   const distance = distanceKm(a, b);
 
+  // Earthquake feeds often contain several genuine shocks in the same area.
+  // Stable upstream IDs/URLs have already matched above. Without that direct
+  // identity evidence, reconcile only a near-simultaneous, near-identical
+  // report rather than collapsing separate aftershocks into one event.
   if (a.category === 'earthquake') {
-    return similarity >= 0.55 && (distance === undefined || distance <= 35) && timeDelta <= 60 * 60_000;
+    return similarity >= 0.8
+      && distance !== undefined
+      && distance <= 10
+      && timeDelta <= 10 * 60_000;
   }
   if (similarity >= 0.72 && (distance === undefined || distance <= 300)) return true;
   return similarity >= 0.4 && distance !== undefined && distance <= 80 && timeDelta <= 3 * 60 * 60_000;
