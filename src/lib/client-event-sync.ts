@@ -19,6 +19,8 @@ interface StoredEvent { id: string; revision: string; cursor: string; payload: F
 interface Change { event_id: string; revision: string; cursor: string; payload: FusedEvent; committed_at: string }
 
 function checkEvent(event: FusedEvent) {
+  if (event?.supersedes !== undefined && (!Array.isArray(event.supersedes) || !event.supersedes.every(url => typeof url === 'string'))) throw new Error('Invalid event lifecycle');
+  if (event?.withdrawn !== undefined && typeof event.withdrawn !== 'boolean') throw new Error('Invalid event lifecycle');
   if (!event || typeof event.id !== 'string' || typeof event.title !== 'string' || !Array.isArray(event.evidence)
     || !Array.isArray(event.sources) || !event.sources.every(source => typeof source === 'string')
     || typeof event.description !== 'string' || !event.evidence.every(item => item && typeof item.source === 'string' && typeof item.source_id === 'string')

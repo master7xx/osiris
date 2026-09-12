@@ -1,3 +1,4 @@
+import { currentEventReports } from './current-event-reports';
 import { deduplicateReports } from './event-identity';
 import { isNewsDigest } from './event-text';
 import type { EventCategory } from './event-fusion';
@@ -8,6 +9,7 @@ export const WORLD_EVENT_CATEGORIES = ['conflict', 'protest', 'political', 'eart
 export interface EventFilters { category: string; severity: number; confidence: string; mappable: boolean }
 export const DEFAULT_EVENT_FILTERS: EventFilters = { category: '', severity: 0, confidence: '', mappable: false };
 export function isMappable(event: ContinuousEvent) {
+  if (event.withdrawn) return false;
   if (event.tags?.includes('digest') || isNewsDigest(event.title, event.description)) return false;
   return typeof event.lat === 'number' && Number.isFinite(event.lat) && Math.abs(event.lat) <= 90
     && typeof event.lng === 'number' && Number.isFinite(event.lng) && Math.abs(event.lng) <= 180
@@ -25,7 +27,7 @@ export function safeEventUrl(value: string) {
 /** One projection shared by the cards, markers and category summary. */
 export function projectWorldEvents(events: ContinuousEvent[], filters: EventFilters, now: number) {
   const active = deduplicateReports(events).filter(event => now - Date.parse(event.last_observed_at) <= 48 * 3600000);
-  const current = active.filter(event => !(event.evidence.length > 0 && event.evidence.every(item => item.source_id === 'noaa-nws') && event.tags?.some(tag => tag.startsWith('expires:') && Date.parse(tag.slice(8)) <= now)));
+  const current = currentEventReports(active, now);
   const matching = filterWorldEvents(current, filters).sort((a, b) => b.priority_score - a.priority_score);
   const visible = matching.slice(0, 300);
   const sources = new Map(visible.flatMap(event => event.evidence.map(item => [item.source_id, item] as const)));

@@ -1,5 +1,7 @@
+import { mergeSnapshotCache, validateClientCache, type EventClientCache } from './client-event-sync';
+import type { ContinuousEvent } from './event-ledger';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchNwsAlerts, parseNwsAlerts, type NwsFeature } from './nws-alerts';
+import { fetchNwsAlerts, fetchNwsEvents, parseNwsAlerts, type NwsFeature } from './nws-alerts';
 import { fuseEvents } from './event-fusion';
 import { applyEventLedger, resetEventLedgerForTests } from './event-ledger';
 import { DEFAULT_EVENT_FILTERS, projectWorldEvents } from './world-events-view';
@@ -53,5 +55,57 @@ describe('NWS warning adapter', () => {
     await expect(fetchNwsAlerts()).rejects.toThrow('503');
     await expect(fetchNwsAlerts()).rejects.toThrow('Invalid NWS');
     await expect(fetchNwsAlerts()).resolves.toEqual({ features: [] });
+  });
+});
+
+describe('CAP lifecycle and cache replay', () => {
+  const checkpoint = (events: ContinuousEvent[]): EventClientCache => ({ version: 1, mode: 'snapshot', savedAt: now,
+    feed: { events, generated_at: new Date(now).toISOString(), source_health: [], total: events.length, mappable: 0, confirmed: 0, corroborating: 0, unconfirmed: 0, categories: {}, source_count: 0, healthy_sources: 0, cursor: 0, new_events: 0, updated_events: 0, ongoing_events: 0 } });
+  const lineage = (id: string, type: string, prior: string, sent: string) => {
+    const row = feature(id);
+    row.properties = { ...row.properties, messageType: type, sent, references: [{ identifier: prior }] };
+    return row;
+  };
+  const records = (rows: NwsFeature[]) => applyEventLedger(fuseEvents(parseNwsAlerts({ features: rows }, now), { now }), now).events;
+  it('replaces A with B then cancels B through 50 cache reload/refresh cycles', () => {
+    let cache = checkpoint(records([feature('A')]));
+    const updated = records([lineage('B', 'Update', 'A', '2026-09-12T11:20:00Z')]);
+    cache = mergeSnapshotCache(cache, checkpoint(updated));
+    const visible = () => projectWorldEvents(cache.feed.events, DEFAULT_EVENT_FILTERS, now).events;
+    expect(visible()).toHaveLength(1);
+    expect(visible()[0].supersedes).toHaveLength(1);
+    cache = mergeSnapshotCache(cache, checkpoint(records([lineage('C', 'Cancel', 'B', '2026-09-12T11:40:00Z')])));
+    for (let i = 0; i < 50; i++) {
+      cache = mergeSnapshotCache(cache, checkpoint(i % 2 ? records([feature('A')]) : []));
+      cache = validateClientCache(JSON.parse(JSON.stringify(cache)))!;
+      expect(visible()).toHaveLength(0);
+    }
+    expect(cache.feed.events).toHaveLength(3);
+  });
+  it('uses expired update lineage to prevent an older warning resurfacing', () => {
+    const update = lineage('B', 'Update', 'A', '2026-09-12T11:20:00Z');
+    update.properties!.expires = '2026-09-12T11:30:00Z';
+    const history = records([feature('A'), update]);
+    expect(history.some(e => e.withdrawn)).toBe(true);
+    expect(projectWorldEvents(history, DEFAULT_EVENT_FILTERS, now).events).toHaveLength(0);
+  });
+  it('does not suppress unrelated warnings or guess a cancellation target', () => {
+    const cancel = feature('cancel'); cancel.properties!.messageType = 'Cancel';
+    const history = records([feature('other'), cancel]);
+    expect(projectWorldEvents(history, DEFAULT_EVENT_FILTERS, now).events).toHaveLength(1);
+  });
+  it('loads history pages and fails closed on an incomplete collection', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/active')) return new Response(JSON.stringify({ features: [feature('A')] }));
+      if (url.includes('cursor=next')) return new Response(JSON.stringify({ features: [lineage('B', 'Cancel', 'A', '2026-09-12T11:40:00Z')] }));
+      return new Response(JSON.stringify({ features: [], pagination: { next: 'https://api.weather.gov/alerts?cursor=next' } }));
+    }));
+    const spy = vi.spyOn(Date, 'now').mockReturnValue(now);
+    try {
+      const events = await fetchNwsEvents();
+      expect(events).toHaveLength(2); expect(events.some(e => e.withdrawn)).toBe(true);
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ features: [], pagination: { next: 'https://evil.example/alerts' } })));
+      await expect(fetchNwsAlerts()).rejects.toThrow('pagination');
+    } finally { spy.mockRestore(); }
   });
 });

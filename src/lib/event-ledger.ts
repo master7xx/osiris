@@ -102,6 +102,8 @@ function materialChange(previous: ContinuousEvent, next: FusedEvent) {
     confidence: event.confidence,
     severity: event.severity,
     status: event.status,
+    withdrawn: event.withdrawn,
+    supersedes: [...(event.supersedes ?? [])].sort(),
     source_count: event.source_count,
     independent_sources: event.independent_sources,
     evidence_weight: event.evidence_weight,
