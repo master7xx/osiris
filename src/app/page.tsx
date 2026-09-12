@@ -22,7 +22,6 @@ import SharePanel from '@/components/SharePanel';
 import ViewPresets from '@/components/ViewPresets';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import GlobalStatusBar from '@/components/GlobalStatusBar';
-import WorldEventsAlertsButton from '@/components/WorldEventsAlertsButton';
 import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
 const OsirisMap = dynamic(() => import('@/components/OsirisMap'), { ssr: false });
@@ -1388,10 +1387,6 @@ export default function Dashboard() {
           </AnimatePresence>
         </div>
 
-        <div className="relative group">
-          <WorldEventsAlertsButton onOpen={() => { setShowIntel(false); setShowMarkets(false); setShowDrawing(false); setShowSpaceCam(false); setShowDesktopSearch(false); }} />
-          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono text-white/80 bg-black/80 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none">ALERTS · WORLD EVENTS</span>
-        </div>
 
         <div className="relative group">
           <button onClick={() => { setShowDrawing(!showDrawing); setShowIntel(false); setShowMarkets(false); setShowSpaceCam(false); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showDrawing ? 'bg-[#00E5FF]/20' : 'hover:bg-white/10'}`} title="Draw — measure areas of interest on the map" aria-label="Draw" aria-expanded={showDrawing}>
