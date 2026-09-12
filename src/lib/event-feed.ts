@@ -1,5 +1,6 @@
 import { fuseEvents, type EventCategory, type FusedEvent } from './event-fusion';
 import { collectEventSources, type EventSourceHealth } from './event-sources';
+import { collectSupplementalEventSignals } from './event-signals';
 
 export interface UnifiedEventFeed {
   events: FusedEvent[];
@@ -36,8 +37,19 @@ function cache(): FeedCache {
 }
 
 async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed> {
-  const collected = await collectEventSources();
-  const events = fuseEvents(collected.events, { now, limit: 300 });
+  const [core, supplemental] = await Promise.all([
+    collectEventSources(),
+    collectSupplementalEventSignals(),
+  ]);
+
+  const healthySources = core.healthy_sources + supplemental.healthy_sources;
+  if (healthySources === 0) {
+    // Trigger getUnifiedEventFeed's stale fallback instead of replacing a good
+    // previous snapshot with a globally empty feed during a broad outage.
+    throw new Error('all unified event sources unavailable');
+  }
+
+  const events = fuseEvents([...core.events, ...supplemental.events], { now, limit: 300 });
   const categories: Partial<Record<EventCategory, number>> = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
 
@@ -49,9 +61,9 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
     corroborating: events.filter(event => event.confidence === 'corroborating').length,
     unconfirmed: events.filter(event => event.confidence === 'unconfirmed').length,
     categories,
-    source_health: collected.health,
-    source_count: collected.source_count,
-    healthy_sources: collected.healthy_sources,
+    source_health: [...core.health, ...supplemental.health],
+    source_count: core.source_count + supplemental.source_count,
+    healthy_sources: healthySources,
     generated_at: new Date(now).toISOString(),
   };
 }
@@ -76,7 +88,11 @@ export async function getUnifiedEventFeed(options: { now?: number; force?: boole
   try {
     return structuredClone(await inflight);
   } catch (error) {
-    if (state.value) return structuredClone(state.value);
+    if (state.value) {
+      // Retry relatively soon while continuing to serve the last complete view.
+      state.expires_at = Date.now() + 15_000;
+      return structuredClone(state.value);
+    }
     throw error;
   }
 }
