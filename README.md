@@ -550,3 +550,17 @@ fallback for unscaled messages. The global stream has no map markers. Existing
 clients must refresh; durable installations must update their server collector.
 
 Source: [NOAA SWPC alerts feed](https://services.swpc.noaa.gov/products/alerts.json).
+
+
+### Space-weather measurement availability
+
+`/api/space-weather` maps Kp 5/6/7/8/9 to G1/G2/G3/G4/G5 using the
+[NOAA scale](https://www.spaceweather.gov/noaa-scales-explanation).
+Missing, malformed and out-of-range Kp values return `kp_index: null` and
+`storm_level: "Unknown"`; a measured zero remains valid. The HUD and Markets
+panel display a dash for missing Kp. Valid products remain usable during a
+partial upstream outage. `data_status` is `available`, `partial` or `unavailable`,
+with booleans in `availability` for `kp`, `alerts` and `solar_flares`. Consumers
+must inspect these fields even on HTTP 200. Valid empty alert/flare collections
+mean available with no entries. These flags describe response availability,
+not timestamp freshness; `kp_timestamp` remains the provider's timestamp.

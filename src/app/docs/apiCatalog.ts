@@ -105,6 +105,8 @@ export const API_GROUPS: ApiGroup[] = [
         method: 'GET',
         summary: 'Geomagnetic conditions and solar flare activity from NOAA SWPC.',
         returns: [
+          'data_status',
+          'availability',
           'kp_index',
           'kp_timestamp',
           'storm_level',
@@ -113,7 +115,7 @@ export const API_GROUPS: ApiGroup[] = [
           'alerts',
           'timestamp',
         ],
-        notes: '`storm_color` is a hex string the HUD renders directly, so clients need no severity lookup table.',
+        notes: '`kp_index` is null and `storm_level` is Unknown when the measurement is missing/invalid. `data_status` reports available/partial/unavailable; `availability` lists kp, alerts and solar_flares. Valid empty alert/flare lists are available. HTTP 200 can contain unavailable upstream data. G1–G5 correspond to Kp 5–9. `storm_color` is a hex string for the HUD.',
       },
     ],
   },
