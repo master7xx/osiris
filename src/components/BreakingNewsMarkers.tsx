@@ -3,33 +3,39 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl, { type Map as MlMap, type Marker } from 'maplibre-gl';
 
-interface BreakingNewsItem {
+interface WorldEventItem {
   id: string;
   title: string;
   description?: string;
-  link?: string;
-  published: string;
-  source: string;
-  sources?: string[];
-  source_count?: number;
-  risk_score?: number;
-  confidence?: 'low' | 'medium' | 'high';
-  coords: [number, number] | null; // [lat, lng]
+  category: string;
+  occurred_at: string;
+  last_seen_at: string;
+  sources: string[];
+  source_count: number;
+  independent_sources: number;
+  severity: number;
+  priority_score: number;
+  confidence: 'unconfirmed' | 'corroborating' | 'confirmed';
+  lat?: number;
+  lng?: number;
   location?: string;
-  location_confidence?: number;
-  age_minutes?: number;
+  location_confidence: number;
+  age_minutes: number;
+  urls?: string[];
 }
 
-interface NewsPayload {
-  news?: BreakingNewsItem[];
+interface EventPayload {
+  events?: WorldEventItem[];
   healthy_sources?: number;
   source_count?: number;
-  timestamp?: string;
+  generated_at?: string;
+  confirmed?: number;
+  corroborating?: number;
 }
 
-const STORAGE_KEY = 'osiris.breaking-news-visible';
-const REFRESH_MS = 120_000;
-const MAX_MARKERS = 36;
+const STORAGE_KEY = 'osiris.world-events-visible';
+const REFRESH_MS = 90_000;
+const MAX_MARKERS = 48;
 
 function relativeTime(published: string) {
   const age = Math.max(0, Date.now() - new Date(published).getTime());
@@ -60,13 +66,13 @@ function appendLine(root: HTMLElement, label: string, value: string, accent = fa
   root.append(row);
 }
 
-function popupNode(item: BreakingNewsItem) {
+function popupNode(item: WorldEventItem) {
   const root = document.createElement('div');
-  root.style.cssText = 'width:min(360px,72vw);background:#07111d;color:#e7f3ff;padding:12px;border:1px solid rgba(43,217,255,.55);box-shadow:0 0 28px rgba(0,140,255,.22);';
+  root.style.cssText = 'width:min(380px,74vw);background:#07111d;color:#e7f3ff;padding:12px;border:1px solid rgba(43,217,255,.55);box-shadow:0 0 28px rgba(0,140,255,.22);';
 
   const header = document.createElement('div');
-  header.textContent = 'BREAKING NEWS';
-  header.style.cssText = 'color:#2BD9FF;font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.16em;margin-bottom:8px;';
+  header.textContent = `WORLD EVENT · ${item.category.toUpperCase()}`;
+  header.style.cssText = 'color:#2BD9FF;font:700 11px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.13em;margin-bottom:8px;';
   root.append(header);
 
   const title = document.createElement('div');
@@ -74,22 +80,25 @@ function popupNode(item: BreakingNewsItem) {
   title.style.cssText = 'font:600 13px system-ui,sans-serif;line-height:1.35;margin-bottom:8px;color:#f4f8fb;';
   root.append(title);
 
-  const published = new Date(item.published);
-  appendLine(root, 'SOURCE', (item.sources?.length ? item.sources : [item.source]).join(' · '));
-  appendLine(root, 'DATE', published.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' }));
-  appendLine(root, 'LOCAL', published.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-  appendLine(root, 'ZULU', `${published.toISOString().slice(11, 19)}Z`);
-  appendLine(root, 'AGE', relativeTime(item.published), true);
+  const occurred = new Date(item.occurred_at);
+  appendLine(root, 'SOURCES', item.sources.join(' · ') || '—');
+  appendLine(root, 'EVIDENCE', `${item.source_count} sources · ${item.independent_sources} independent`);
+  appendLine(root, 'DATE', occurred.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' }));
+  appendLine(root, 'LOCAL', occurred.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  appendLine(root, 'ZULU', `${occurred.toISOString().slice(11, 19)}Z`);
+  appendLine(root, 'AGE', relativeTime(item.occurred_at), true);
   if (item.location) appendLine(root, 'LOCATION', item.location);
-  appendLine(root, 'RISK', String(item.risk_score ?? '—'));
-  appendLine(root, 'CONF', String(item.confidence ?? 'low').toUpperCase());
+  appendLine(root, 'SEVERITY', `${item.severity}/100`);
+  appendLine(root, 'PRIORITY', `${item.priority_score}/100`);
+  appendLine(root, 'CONF', item.confidence.toUpperCase());
 
-  if (item.link) {
+  const firstUrl = item.urls?.[0];
+  if (firstUrl) {
     const link = document.createElement('a');
-    link.href = item.link;
+    link.href = firstUrl;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.textContent = 'OPEN SOURCE ↗';
+    link.textContent = item.urls && item.urls.length > 1 ? `OPEN EVIDENCE (1/${item.urls.length}) ↗` : 'OPEN EVIDENCE ↗';
     link.style.cssText = 'display:inline-block;margin-top:10px;color:#2BD9FF;font:700 10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.08em;text-decoration:none;';
     root.append(link);
   }
@@ -98,7 +107,7 @@ function popupNode(item: BreakingNewsItem) {
 
 function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null> }) {
   const [enabled, setEnabled] = useState(true);
-  const [payload, setPayload] = useState<NewsPayload>({});
+  const [payload, setPayload] = useState<EventPayload>({});
   const [loading, setLoading] = useState(false);
   const markers = useRef<Marker[]>([]);
 
@@ -121,11 +130,11 @@ function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null>
     if (typeof document !== 'undefined' && document.hidden) return;
     setLoading(true);
     try {
-      const response = await fetch('/api/news', { cache: 'no-store' });
+      const response = await fetch('/api/events?mappable=1&limit=80&minSeverity=35', { cache: 'no-store' });
       if (!response.ok) return;
       setPayload(await response.json());
     } catch (error) {
-      console.warn('[OSIRIS] Breaking news layer refresh failed:', error instanceof Error ? error.message : error);
+      console.warn('[OSIRIS] World event layer refresh failed:', error instanceof Error ? error.message : error);
     } finally {
       setLoading(false);
     }
@@ -148,19 +157,18 @@ function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null>
     markers.current = [];
     if (!map || !enabled) return;
 
-    const news = (payload.news || [])
-      .filter(item => Array.isArray(item.coords) && Number(item.location_confidence ?? 0) >= 0.85)
+    const events = (payload.events || [])
+      .filter(item => typeof item.lat === 'number' && typeof item.lng === 'number' && item.location_confidence >= 0.75)
       .slice(0, MAX_MARKERS);
 
-    for (const item of news) {
-      const [lat, lng] = item.coords!;
-      const ageMinutes = item.age_minutes ?? Math.max(0, Math.round((Date.now() - new Date(item.published).getTime()) / 60_000));
+    for (const item of events) {
+      const ageMinutes = item.age_minutes ?? Math.max(0, Math.round((Date.now() - new Date(item.occurred_at).getTime()) / 60_000));
       const fresh = freshness(ageMinutes);
       const el = document.createElement('button');
       el.type = 'button';
-      el.className = fresh.pulse ? 'osiris-breaking-marker osiris-breaking-marker--pulse' : 'osiris-breaking-marker';
-      el.title = `${relativeTime(item.published)} · ${item.title}`;
-      el.setAttribute('aria-label', `Breaking news: ${item.title}`);
+      el.className = fresh.pulse ? 'osiris-world-event-marker osiris-world-event-marker--pulse' : 'osiris-world-event-marker';
+      el.title = `${item.category.toUpperCase()} · ${relativeTime(item.occurred_at)} · ${item.title}`;
+      el.setAttribute('aria-label', `World event: ${item.title}`);
       el.style.cssText = [
         'width:18px;height:18px;border-radius:50%;cursor:pointer;',
         `background:${fresh.color};border:2px solid rgba(225,247,255,.95);`,
@@ -171,10 +179,10 @@ function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null>
       core.style.cssText = 'width:5px;height:5px;border-radius:50%;background:#06111e;box-shadow:0 0 0 1px rgba(255,255,255,.35);';
       el.append(core);
 
-      const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 14, maxWidth: '380px' })
+      const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 14, maxWidth: '400px' })
         .setDOMContent(popupNode(item));
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-        .setLngLat([lng, lat])
+        .setLngLat([item.lng!, item.lat!])
         .setPopup(popup)
         .addTo(map);
       markers.current.push(marker);
@@ -184,18 +192,18 @@ function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null>
       markers.current.forEach(marker => marker.remove());
       markers.current = [];
     };
-  }, [mapRef, enabled, payload.news]);
+  }, [mapRef, enabled, payload.events]);
 
-  const mappable = (payload.news || []).filter(item => item.coords && Number(item.location_confidence ?? 0) >= 0.85).length;
+  const mappable = (payload.events || []).filter(item => typeof item.lat === 'number' && typeof item.lng === 'number' && item.location_confidence >= 0.75).length;
 
   return (
     <>
       <style jsx global>{`
-        @keyframes osiris-breaking-pulse {
+        @keyframes osiris-world-event-pulse {
           0%, 100% { transform: scale(1); filter: brightness(1); }
           50% { transform: scale(1.28); filter: brightness(1.35); }
         }
-        .osiris-breaking-marker--pulse { animation: osiris-breaking-pulse 1.35s ease-in-out infinite; }
+        .osiris-world-event-marker--pulse { animation: osiris-world-event-pulse 1.35s ease-in-out infinite; }
         .maplibregl-popup-content { padding: 0 !important; background: transparent !important; box-shadow: none !important; }
         .maplibregl-popup-close-button { color: #9fdfff !important; z-index: 3; font-size: 18px; right: 5px !important; top: 3px !important; }
       `}</style>
@@ -213,12 +221,14 @@ function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObject<MlMap | null>
             className={enabled ? 'animate-pulse' : ''}
             style={{ width: 7, height: 7, borderRadius: 999, background: enabled ? '#2BD9FF' : '#536274', boxShadow: enabled ? '0 0 10px #168BFF' : 'none' }}
           />
-          BREAKING NEWS {enabled ? 'ON' : 'OFF'}
+          WORLD EVENTS {enabled ? 'ON' : 'OFF'}
         </button>
         <span style={{ color: '#53677a' }}>·</span>
         <span>{mappable} MAP</span>
         <span style={{ color: '#53677a' }}>·</span>
         <span>{payload.healthy_sources ?? 0}/{payload.source_count ?? 0} SRC</span>
+        <span style={{ color: '#53677a' }}>·</span>
+        <span>{payload.confirmed ?? 0} CONF</span>
         {loading && <span style={{ color: '#2BD9FF' }}>SYNC</span>}
       </div>
     </>
