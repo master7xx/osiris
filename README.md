@@ -612,3 +612,24 @@ retained reports. Global health describes source availability at collection time
 Debug request errors are historical: they can remain after current health recovers.
 Client retention does not renew an event's observation clock. Durable-mode
 storage and its synchronization protocol are unchanged by this snapshot fix.
+
+
+### CISA KEV advisories in world events
+
+CISA KEV is shared by `/api/cyber-threats` and the common event collector.
+Entries added in the last 30 days appear in `cyber` as **catalog additions**,
+with vendor/product, description, required action and CISA due date. The event
+date is `dateAdded`, normalized to UTC midnight with day precision; it does not
+claim an attack happened at that time. Advisories have no invented coordinates.
+
+CVE is the explicit upstream report identity: different CVEs sharing the catalog
+URL remain separate, and updated entries revise the same report. Source health
+marks failed/malformed collections as unavailable, including count mismatches
+or duplicate CVEs. Event priority uses OSIRIS scores 70, or 80 when CISA reports
+known ransomware use; these are not CVSS ratings. Unknown ransomware use does
+not mean no ransomware use. Catalog additions older than 30 days are outside
+this adapter's refresh window; absence is not a withdrawal or proof of remediation.
+The legacy endpoint retains its existing response fields and ten-item limit.
+Durable installations must update the server collector; no migration is needed.
+
+Schema: [CISA's official KEV schema](https://github.com/cisagov/kev-data/blob/develop/known_exploited_vulnerabilities_schema.json).
