@@ -58,3 +58,27 @@
 .dashboard-navigation[hidden] { display: none; }
 .dashboard-shell[data-navigation='hidden'] .dashboard-workspace { left: 0; }
 .dashboard-navigation-content button > span:not([role='presentation']) { font-size: 12px; line-height: 1.4; }
+
+/* Camera dialogs belong to the usable map area, not the browser viewport. */
+.dashboard-workspace > .camera-viewer {
+  position: absolute;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+}
+.dashboard-workspace > .camera-viewer[data-expanded='false'] {
+  left: auto;
+  right: 16px;
+  bottom: 32px;
+  width: min(480px, calc(100% - 32px));
+}
+.dashboard-workspace > .camera-viewer[data-expanded='true'] {
+  inset: 16px 16px 32px;
+}
+@media (max-width: 1023px) {
+  /* At narrow desktop widths the news dock overlays the workspace. */
+  .dashboard-shell[data-news='open'] .dashboard-workspace > .camera-viewer {
+    right: calc(var(--shell-news) + 16px);
+    max-width: calc(100% - var(--shell-news) - 32px);
+  }
+}

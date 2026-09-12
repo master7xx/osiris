@@ -76,3 +76,14 @@ and leave the upper map available. A 260 px minimum (capped by available viewpor
 height) keeps controls usable on small displays. The table scrolls independently;
 filters, events and size remain intact across close/reopen within the same page.
 The header wraps its controls and remains scrollable if height is constrained.
+
+## Camera viewer bounds
+
+The desktop camera viewer is positioned relative to the map workspace. Compact
+and expanded modes respect the event dock and keep their controls within the
+workspace, with scrolling when height is limited. At narrow desktop widths the
+overlaid event dock is deducted from the available camera width. Phone behavior
+uses the existing viewport layout because DashboardShell does not wrap that view.
+
+Acceptance: open a camera with World Events visible, close/reopen the event dock,
+expand/restore the camera, and resize through desktop/narrow/phone widths.

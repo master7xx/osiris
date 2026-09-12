@@ -71,7 +71,9 @@ See [WINDOWS.md](WINDOWS.md) for native development and debugging details.
 
 The desktop dashboard now uses a docked shell with a compact UTC/API header,
 an expandable layer navigation, a persistent location search and a news panel
-that can be hidden. The map resizes when panel widths change. Existing map tools
+that can be hidden. The map resizes when panel widths change. The selected camera viewer stays
+inside the available map area, including when the event panel is open; its
+expanded view uses the same bounds. Existing map tools
 remain on the right-hand tool strip; layer keys, URL restoration and Style Studio
 settings are retained. The `L` shortcut still hides/shows the layer navigation.
 
