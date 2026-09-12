@@ -10,6 +10,7 @@ import {
 import { setNewsSourceHealth, type ClientNewsSourceHealth } from './news-health-client';
 import { setCctvProviderHealth, type ClientCctvProviderHealth } from './cctv-health-client';
 import { setCctvCoverage, type ClientCctvCoverageSnapshot } from './cctv-coverage-client';
+import { setEventIngestHealth, type ClientEventIngestSnapshot } from './event-health-client';
 
 declare global {
   interface Window {
@@ -76,6 +77,24 @@ export function installDebugFetch() {
       if (endpoint === '/api/news' && response.ok) {
         void response.clone().json().then((payload: { health?: ClientNewsSourceHealth[] }) => {
           if (Array.isArray(payload.health)) setNewsSourceHealth(payload.health);
+        }).catch(() => {});
+      }
+
+      if (endpoint === '/api/events' && response.ok) {
+        void response.clone().json().then((payload: Partial<ClientEventIngestSnapshot>) => {
+          if (!Array.isArray(payload.source_health)) return;
+          setEventIngestHealth({
+            total: Number(payload.total) || 0,
+            mappable: Number(payload.mappable) || 0,
+            confirmed: Number(payload.confirmed) || 0,
+            corroborating: Number(payload.corroborating) || 0,
+            unconfirmed: Number(payload.unconfirmed) || 0,
+            source_count: Number(payload.source_count) || 0,
+            healthy_sources: Number(payload.healthy_sources) || 0,
+            generated_at: payload.generated_at,
+            categories: payload.categories && typeof payload.categories === 'object' ? payload.categories : {},
+            source_health: payload.source_health,
+          });
         }).catch(() => {});
       }
 
