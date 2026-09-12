@@ -564,3 +564,14 @@ with booleans in `availability` for `kp`, `alerts` and `solar_flares`. Consumers
 must inspect these fields even on HTTP 200. Valid empty alert/flare collections
 mean available with no entries. These flags describe response availability,
 not timestamp freshness; `kp_timestamp` remains the provider's timestamp.
+
+
+### Finding space weather in the dashboard
+
+On desktop, open **Markets** with the chart icon on the map's right toolbar
+or press **M** (English keyboard layout, outside a text field). **SPACE WEATHER**
+is beneath **BREADTH** in the docked panel. Markets uses an opaque theme surface
+so map labels do not bleed through. The space-weather heading, measurement and
+flare text use readable, wrapping typography. Partial/unavailable responses
+identify the missing products. A missing Kp remains a visible neutral Unknown,
+not a dim severity color. This block appears after the space-weather response loads.
