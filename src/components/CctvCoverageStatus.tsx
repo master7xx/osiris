@@ -34,10 +34,10 @@ function feedSummary(region: ClientCctvMacroCoverage) {
 }
 
 function watchlistSummary(region: ClientCctvMacroCoverage) {
-  if (!region.watchlist_total) return '—';
+  if (!region.watchlist_total) return 'FROZEN';
   const missing = region.watchlist_missing.length;
   const weak = region.watchlist_weak.length;
-  return `${region.watchlist_seen}/${region.watchlist_total}${missing ? ` · ${missing} missing` : ''}${weak ? ` · ${weak} weak` : ''}`;
+  return `T${region.priority_tier ?? '—'} · ${region.watchlist_seen}/${region.watchlist_total}${missing ? ` · ${missing} missing` : ''}${weak ? ` · ${weak} weak` : ''}`;
 }
 
 function regionTitle(region: ClientCctvMacroCoverage) {
@@ -46,7 +46,7 @@ function regionTitle(region: ClientCctvMacroCoverage) {
     `${region.cameras} cameras · ${region.countries_seen} countries`,
     providerSummary(region),
     feedSummary(region),
-    `Strategic watchlist: ${watchlistSummary(region)}`,
+    `Active-country queue: ${watchlistSummary(region)}`,
     region.watchlist_missing.length ? `Missing: ${region.watchlist_missing.join(', ')}` : undefined,
     region.watchlist_weak.length ? `Weak (<5 cams): ${region.watchlist_weak.join(', ')}` : undefined,
     region.suspected_duplicates ? `Suspected cross-source coordinate duplicates: ${region.suspected_duplicates}` : undefined,
@@ -74,9 +74,8 @@ export default function CctvCoverageStatus() {
   const visibleRegions = coverage.regions.filter(region => region.id !== 'other');
   const gaps = visibleRegions.filter(region => region.band === 'gap').length;
   const sparse = visibleRegions.filter(region => region.band === 'sparse').length;
-  const priorityLabels = coverage.priority_regions
-    .map(id => coverage.regions.find(region => region.id === id)?.label)
-    .filter((label): label is string => Boolean(label));
+  const countryQueue = (coverage.priority_countries ?? []).filter(country => country.status !== 'covered');
+  const topQueue = countryQueue.slice(0, 6);
 
   return createPortal(
     <details
@@ -106,16 +105,33 @@ export default function CctvCoverageStatus() {
         {gaps > 0 && <span style={{ color: COLORS.gap }}>{gaps} GAP</span>}
         {sparse > 0 && <span style={{ color: COLORS.sparse }}>{sparse} SPARSE</span>}
         {coverage.suspected_duplicates > 0 && <span style={{ color: '#829AB0' }}>{coverage.suspected_duplicates} DUP?</span>}
-        {priorityLabels.length > 0 && (
-          <span style={{ marginLeft: 'auto', color: '#FFCA62' }}>PRIORITY: {priorityLabels.slice(0, 3).join(' · ')}</span>
+        {topQueue.length > 0 && (
+          <span style={{ marginLeft: 'auto', color: '#FFCA62' }}>
+            NEXT: {topQueue.slice(0, 3).map(item => `T${item.tier} ${item.country}`).join(' · ')}
+          </span>
         )}
       </summary>
+
+      {topQueue.length > 0 && (
+        <div style={{ marginTop: 7, display: 'flex', flexWrap: 'wrap', gap: '5px 10px', color: '#829AB0' }}>
+          <span style={{ color: '#7CCFFF' }}>COUNTRY QUEUE</span>
+          {topQueue.map(item => (
+            <span
+              key={item.country}
+              title={`${item.country}: tier ${item.tier}, ${item.cameras} cameras, ${item.status}`}
+              style={{ color: item.status === 'missing' ? '#FF6B76' : '#FFCA62' }}
+            >
+              T{item.tier} {item.country} {item.cameras} {item.status.toUpperCase()}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: 8, maxHeight: 260, overflow: 'auto', border: '1px solid rgba(43,217,255,.14)', borderRadius: 4 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', whiteSpace: 'nowrap' }}>
           <thead style={{ position: 'sticky', top: 0, background: '#071321', color: '#7CCFFF' }}>
             <tr>
-              {['REGION', 'STATE', 'CAMS', 'COUNTRIES', 'PROVIDERS', 'FEEDS', 'WATCHLIST', 'DUP?', 'GAP'].map(label => (
+              {['REGION', 'STATE', 'CAMS', 'COUNTRIES', 'PROVIDERS', 'FEEDS', 'ACTIVE QUEUE', 'DUP?', 'GAP'].map(label => (
                 <th key={label} style={{ textAlign: 'left', padding: '5px 6px', borderBottom: '1px solid rgba(43,217,255,.18)', fontSize: 8 }}>{label}</th>
               ))}
             </tr>
@@ -141,7 +157,7 @@ export default function CctvCoverageStatus() {
         </table>
       </div>
       <div style={{ marginTop: 5, color: '#55758E' }}>
-        Strategic watchlist gaps are integration priorities, not political completeness. DUP? = suspected cross-source coordinate overlap. Latency is not used.
+        Worldwide coverage remains informational. Gap priorities are restricted to the active country tiers; FROZEN regions do not create implementation work. DUP? = suspected cross-source coordinate overlap. Latency is not used.
       </div>
     </details>,
     target,

@@ -1,6 +1,8 @@
 'use client';
 
 export type ClientCctvCoverageBand = 'gap' | 'sparse' | 'covered' | 'dense';
+export type ClientCctvPriorityTier = 1 | 2 | 3;
+export type ClientCctvPriorityStatus = 'missing' | 'weak' | 'covered';
 export type ClientCctvMacroRegionId =
   | 'north-america'
   | 'europe'
@@ -28,7 +30,15 @@ export interface ClientCctvMacroCoverage {
   watchlist_seen: number;
   watchlist_missing: string[];
   watchlist_weak: string[];
+  priority_tier?: ClientCctvPriorityTier;
   gap_score: number;
+}
+
+export interface ClientCctvPriorityCountryCoverage {
+  country: string;
+  tier: ClientCctvPriorityTier;
+  cameras: number;
+  status: ClientCctvPriorityStatus;
 }
 
 export interface ClientCctvCoverageSnapshot {
@@ -39,6 +49,7 @@ export interface ClientCctvCoverageSnapshot {
   suspected_duplicates: number;
   request_regions: string[];
   priority_regions: ClientCctvMacroRegionId[];
+  priority_countries?: ClientCctvPriorityCountryCoverage[];
   generated_at: string;
   regions: ClientCctvMacroCoverage[];
 }
@@ -54,6 +65,7 @@ function clone(snapshot: ClientCctvCoverageSnapshot | null) {
     ...snapshot,
     request_regions: [...snapshot.request_regions],
     priority_regions: [...snapshot.priority_regions],
+    priority_countries: snapshot.priority_countries?.map(country => ({ ...country })),
     regions: snapshot.regions.map(region => ({
       ...region,
       countries: region.countries.map(country => ({ ...country })),
