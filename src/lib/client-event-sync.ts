@@ -1,3 +1,4 @@
+import { deduplicateReports, reportIdentity } from './event-identity';
 import type { UnifiedEventFeed } from './event-feed';
 import type { ContinuousEvent } from './event-ledger';
 import type { FusedEvent } from './event-fusion';
@@ -73,18 +74,21 @@ export function validateClientCache(value: unknown): EventClientCache | null {
 /** Keep previously displayed reports for 48 hours without renewing their clocks. */
 export function mergeSnapshotCache(previous: EventClientCache | null, next: EventClientCache): EventClientCache {
   const now = next.savedAt;
-  const current = new Map(next.feed.events.map(event => [event.id, event]));
+  const current = new Map(deduplicateReports(next.feed.events).map(event => [event.id, event]));
+  const freshReports = new Set([...current.values()].map(reportIdentity));
   const retainedIds: string[] = [];
   if (previous?.mode === 'snapshot') {
     for (const event of previous.feed.events) {
       const age = now - Date.parse(event.last_observed_at);
-      if (!current.has(event.id) && Number.isFinite(age) && age <= 48 * 3600000) {
+      if (!current.has(event.id) && !freshReports.has(reportIdentity(event)) && Number.isFinite(age) && age <= 48 * 3600000) {
         current.set(event.id, event);
         retainedIds.push(event.id);
       }
     }
   }
-  return { ...next, retainedIds, feed: project([...current.values()], null, next.feed) };
+  const events = deduplicateReports([...current.values()]);
+  const kept = new Set(events.map(event => event.id));
+  return { ...next, retainedIds: retainedIds.filter(id => kept.has(id)), feed: project(events, null, next.feed) };
 }
 
 /** Returns a new data+cursor checkpoint only after the whole bounded synchronization succeeds. */

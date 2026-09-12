@@ -493,3 +493,11 @@ Collapsed or hidden panels also expose an edge button to reopen them. `Events`
 controls WORLD EVENTS / SOURCES; the duplicate `Alerts` toolbar button is removed.
 The left navigation's `Threat layers` group controls map layers, not the event
 feed. Narrow desktop layouts show one expanded side panel at a time.
+
+Event report IDs derive from source and upstream URL rather than position in a
+refresh result. Cached snapshot aliases are reconciled using exact source/URL
+provenance, and the shared card/marker projection also removes old aliases.
+Distinct URLs are not merged merely because titles look alike. Place matching
+uses word boundaries to avoid matching Aden inside unrelated words; Leipzig is
+recognized explicitly. Existing persisted location metadata is corrected by a
+subsequent successful source refresh, not a database rewrite.

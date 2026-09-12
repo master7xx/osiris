@@ -1,3 +1,4 @@
+import { deduplicateReports } from './event-identity';
 import { isNewsDigest } from './event-text';
 import type { EventCategory } from './event-fusion';
 import type { ContinuousEvent } from './event-ledger';
@@ -23,8 +24,7 @@ export function safeEventUrl(value: string) {
 
 /** One projection shared by the cards, markers and category summary. */
 export function projectWorldEvents(events: ContinuousEvent[], filters: EventFilters, now: number) {
-  const unique = new Map(events.map(event => [event.id, event]));
-  const active = [...unique.values()].filter(event => now - Date.parse(event.last_observed_at) <= 48 * 3600000);
+  const active = deduplicateReports(events).filter(event => now - Date.parse(event.last_observed_at) <= 48 * 3600000);
   const matching = filterWorldEvents(active, filters).sort((a, b) => b.priority_score - a.priority_score);
   const visible = matching.slice(0, 300);
   const sources = new Map(visible.flatMap(event => event.evidence.map(item => [item.source_id, item] as const)));

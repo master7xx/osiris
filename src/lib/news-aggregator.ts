@@ -1,3 +1,4 @@
+import { canonicalReportUrl } from './event-identity';
 import { isNewsDigest } from './event-text';
 import Parser from 'rss-parser';
 import {
@@ -156,6 +157,7 @@ const PLACES: PlaceDef[] = [
   { keys: ['new york city', 'new york', 'нью-йорк'], label: 'New York, US', coords: [40.7128, -74.006], confidence: 0.96 },
   { keys: ['london', 'лондон'], label: 'London, UK', coords: [51.5072, -0.1276], confidence: 0.98 },
   { keys: ['paris', 'париж'], label: 'Paris, France', coords: [48.8566, 2.3522], confidence: 0.98 },
+  { keys: ['leipzig', 'лейпциг'], label: 'Leipzig, Germany', coords: [51.3397, 12.3731], confidence: 0.98 },
   { keys: ['berlin', 'берлин'], label: 'Berlin, Germany', coords: [52.52, 13.405], confidence: 0.98 },
   { keys: ['brussels', 'брюссель'], label: 'Brussels, Belgium', coords: [50.8503, 4.3517], confidence: 0.98 },
   { keys: ['warsaw', 'варшава'], label: 'Warsaw, Poland', coords: [52.2297, 21.0122], confidence: 0.98 },
@@ -217,7 +219,11 @@ function scoreRisk(text: string): number {
 export function locateArticle(text: string): { coords: [number, number] | null; location?: string; confidence: number } {
   const lower = text.toLowerCase();
   for (const place of PLACES) {
-    if (place.keys.some(key => lower.includes(key))) return { coords: place.coords, location: place.label, confidence: place.confidence };
+    if (place.keys.some(key => {
+      const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ending = /[а-яё]/iu.test(key) ? '[а-яё]{0,3}' : '';
+      return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}${ending}(?![\\p{L}\\p{N}])`, 'u').test(lower);
+    })) return { coords: place.coords, location: place.label, confidence: place.confidence };
   }
   return { coords: null, confidence: 0 };
 }
@@ -369,7 +375,7 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
     else clusters.push({ primary: article, articles: [article] });
   }
 
-  return clusters.slice(0, 80).map((cluster, index) => {
+  return clusters.slice(0, 80).map((cluster) => {
     const primary = [...cluster.articles].sort((a, b) => b.sourceWeight - a.sourceWeight || b.time - a.time)[0];
     const evidenceBySource = new Map<string, typeof primary>();
     for (const article of cluster.articles) {
@@ -387,7 +393,7 @@ function clusterArticles(raw: RawArticle[], now = Date.now()): NewsItem[] {
     const confidence: NewsItem['confidence'] = confidenceData.score >= 0.78 ? 'high' : confidenceData.score >= 0.56 ? 'medium' : 'low';
     const ageMinutes = Math.max(0, Math.round((now - primary.time) / 60_000));
     return {
-      id: `${primary.time.toString(36)}-${index}-${titleFingerprint(primary.title).values().next().value || 'news'}`,
+      id: encodeURIComponent(JSON.stringify([primary.sourceId, primary.link ? canonicalReportUrl(primary.link) : [primary.published, primary.title]])),
       title: primary.title,
       description: primary.description,
       link: primary.link,
