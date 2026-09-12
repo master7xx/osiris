@@ -15,7 +15,6 @@ VirtualBox and other virtualization layers are not required for the web app.
 ```powershell
 git clone https://github.com/master7xx/osiris.git
 cd osiris
-git switch feat/windows-native-debug-overlay
 npm ci
 npm run doctor
 Copy-Item .env.example .env.local
