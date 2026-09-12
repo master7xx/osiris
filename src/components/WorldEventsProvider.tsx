@@ -2,6 +2,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { UnifiedEventFeed } from '@/lib/event-feed';
 import { DEFAULT_EVENT_FILTERS, filterWorldEvents, isMappable, type EventFilters } from '@/lib/world-events-view';
+import { readEventCache, writeEventCache } from '@/lib/client-event-cache';
+import { synchronizeEvents, type EventClientCache } from '@/lib/client-event-sync';
 import { setEventIngestHealth } from '@/lib/event-health-client';
 
 function useWorldEventsState(onMapSelect: () => void) {
@@ -13,6 +15,9 @@ function useWorldEventsState(onMapSelect: () => void) {
   const [enabled, setEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mode, setMode] = useState<'snapshot' | 'durable'>('snapshot');
+  const [fromCache, setFromCache] = useState(false);
+  const checkpoint = useRef<EventClientCache | null>(null);
   const [now, setNow] = useState(0);
   const onMapSelectRef = useRef(onMapSelect);
   useEffect(() => { onMapSelectRef.current = onMapSelect; }, [onMapSelect]);
@@ -23,28 +28,35 @@ function useWorldEventsState(onMapSelect: () => void) {
     const timeout = setTimeout(() => controller.abort(), 30000);
     setLoading(true);
     try {
-      const response = await fetch('/api/events?limit=300', { cache: 'no-store', signal: controller.signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const next: UnifiedEventFeed = await response.json();
-      if (!Array.isArray(next.events) || !Array.isArray(next.source_health) || !Number.isFinite(Date.parse(next.generated_at))) throw new Error('Invalid event snapshot');
+      const next = await synchronizeEvents(checkpoint.current, fetch, controller.signal);
       if (request.current !== controller) return;
-      setSnapshot(next); setEventIngestHealth(next); setError('');
+      checkpoint.current = next;
+      writeEventCache(next);
+      setMode(next.mode); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(false);
     } catch (err) {
-      if (request.current === controller) setError(err instanceof Error ? err.message : 'Event refresh failed');
+      if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(true); }
     } finally {
       clearTimeout(timeout);
       if (request.current === controller) { request.current = null; setLoading(false); setNow(Date.now()); }
     }
   }, []);
   useEffect(() => {
-    const initial = setTimeout(() => void refresh(), 0);
+    const initial = setTimeout(() => {
+      const cached = readEventCache();
+      if (cached) { checkpoint.current = cached; setMode(cached.mode); setSnapshot(cached.feed); setEventIngestHealth(cached.feed); setFromCache(true); setNow(Date.now()); }
+      void refresh();
+    }, 0);
     const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 90000);
     const clock = setInterval(() => setNow(Date.now()), 15000);
     const visible = () => { if (!document.hidden) void refresh(); };
     document.addEventListener('visibilitychange', visible);
-    return () => { const current = request.current; request.current = null; current?.abort(); clearTimeout(initial); clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', visible); };
+    window.addEventListener('online', visible);
+    return () => { const current = request.current; request.current = null; current?.abort(); clearTimeout(initial); clearInterval(poll); clearInterval(clock); document.removeEventListener('visibilitychange', visible); window.removeEventListener('online', visible); };
   }, [refresh]);
-  const events = useMemo(() => filterWorldEvents(snapshot?.events ?? [], filters), [snapshot, filters]);
+  const events = useMemo(() => {
+    const retained = (snapshot?.events ?? []).filter(event => mode !== 'durable' || now - Date.parse(event.last_observed_at) <= 48 * 3600000);
+    return filterWorldEvents(retained, filters).sort((a, b) => b.priority_score - a.priority_score).slice(0, 300);
+  }, [snapshot, filters, now, mode]);
   const mappable = useMemo(() => events.filter(isMappable), [events]);
   const selectEvent = useCallback((id: string, origin: 'map' | 'list') => {
     setSelectedId(id);
@@ -52,8 +64,8 @@ function useWorldEventsState(onMapSelect: () => void) {
     else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
   }, []);
   return { snapshot, events, mappable, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
-    enabled, setEnabled, loading, error, refresh,
-    stale: !!snapshot && now - Date.parse(snapshot.generated_at) > 180000,
+    enabled, setEnabled, loading, error, refresh, fromCache,
+    stale: !!snapshot && (fromCache || now - Date.parse(snapshot.generated_at) > 180000),
     partial: !!snapshot && (snapshot.healthy_sources < snapshot.source_count || snapshot.source_health.some(source => source.state !== 'healthy')) };
 }
 const WorldEventsContext = createContext<ReturnType<typeof useWorldEventsState> | null>(null);

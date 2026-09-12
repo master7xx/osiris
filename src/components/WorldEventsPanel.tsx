@@ -22,7 +22,7 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       <label><input type="checkbox" checked={feed.enabled} onChange={e => feed.setEnabled(e.target.checked)} /> Show markers ({feed.mappable.length})</label>
     </div>
     <div className="world-events-status" role="status">
-      {feed.loading ? 'Refreshing… ' : ''}{feed.stale ? 'STALE · ' : ''}{feed.partial ? 'PARTIAL SOURCES · ' : ''}
+      {feed.fromCache ? 'CACHED DATA · ' : ''}{feed.loading ? 'Refreshing… ' : ''}{feed.stale ? 'STALE · ' : ''}{feed.partial ? 'PARTIAL SOURCES · ' : ''}
       {feed.error && `${feed.snapshot ? 'Refresh failed; keeping previous snapshot' : 'Unable to load events'}: ${feed.error} `}
       {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} sources · Snapshot {new Date(feed.snapshot.generated_at).toLocaleTimeString([], { timeZone: 'UTC', hour12: false })} UTC</span>}
       <button type="button" disabled={feed.loading} onClick={() => void feed.refresh()}>Refresh</button>

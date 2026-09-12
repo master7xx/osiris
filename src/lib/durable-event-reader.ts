@@ -43,8 +43,10 @@ export class DurableEventReader {
       const more = rows.length > limit;
       const changes = rows.slice(0, limit);
       const next = encode({ epoch: meta.epoch, after: more ? changes[changes.length - 1].cursor : through, through: more ? through : null });
+      const collector = (await client.query('SELECT last_success_at,last_error,source_health FROM osiris_events.collector WHERE singleton')).rows[0] ?? null;
+      const observations = more ? [] : (await client.query("SELECT id,last_observed_at,payload->'priority_score' AS priority_score FROM osiris_events.events")).rows;
       await client.query('COMMIT');
-      return { changes, cursor: next, has_more: more, through };
+      return { observations, collector, changes, cursor: next, has_more: more, through };
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   }
 }

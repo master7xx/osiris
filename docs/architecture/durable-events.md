@@ -139,3 +139,13 @@ are reconciled but ambiguous fuzzy merges require manual investigation. Successf
 signals persist for 48 hours and can still contribute to fused confidence. Source
 health is committed after event writes, so its timestamp may conservatively lag
 the newest stored event. Production deployment is not enabled automatically.
+
+## Client cache follow-up
+
+The client now supports server-advertised durable replay, an origin-scoped
+versioned localStorage checkpoint and offline/stale display. Checkpoints pair
+data with the cursor; multi-page failure leaves the previous pair untouched.
+HTTP 410 or a large backlog reboots from a consistent snapshot. Final replay pages
+include observation timestamps and ranking metadata for unchanged events. The
+server remains authoritative; browser persistence is bounded and disposable.
+Retention/tombstones and target-host recovery remain separate rollout work.

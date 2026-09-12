@@ -96,8 +96,9 @@ low (<35), medium (35–69) and high (70+) with different icons and text. Source
 badges distinguish Telegram, BBC, broadcasters, editorial, official and sensor
 sources; mixed-source events retain a badge for each source.
 
-The snapshot refreshes every 90 seconds while visible and when the page becomes
-visible. Failed refreshes retain the last snapshot; partial source coverage and
+The client synchronizes every 90 seconds while visible, on visibility return and
+on network reconnection. In durable mode it loads one bootstrap and then revision
+pages; default mode continues to fetch full snapshots. Failed refreshes retain the last snapshot; partial source coverage and
 snapshots older than three minutes are labelled. Selection and filters survive
 refreshes and panel close/reopen within the page. The latest-state API remains
 capped at 300 events and does not provide durable history.
@@ -395,6 +396,35 @@ Tests truncate event-store records in that test database. Ordinary `npm test`
 skips database integration without this variable; CI supplies PostgreSQL.
 
 Remaining limits: bootstrap is a single response; event/revision history has no
-automatic pruning or tombstones yet. The UI still polls ranked snapshots rather
-than replay. Explicit expiry, per-source schedules, replay-based UI and measured
+automatic pruning or tombstones yet. The UI uses replay in durable mode and ranked snapshots in default mode. Explicit expiry, per-source schedules, replay-based UI and measured
 host recovery remain rollout work. See the [architecture contract](docs/architecture/durable-events.md).
+
+## Client event cache and synchronization
+
+Authoritative data, revisions and source collection remain on the server.
+The browser keeps a disposable localStorage checkpoint containing events and the
+opaque replay cursor together. On reload it displays that checkpoint as
+`CACHED DATA`/`STALE` until server synchronization succeeds. Failed refreshes
+retain the previous checkpoint. Filters and selection stay in page state.
+
+The cache is scoped to the browser origin, schema-versioned, expires after seven
+days and is capped at roughly 4 MiB of UTF-16 text. Quota failures, blocked storage
+and corrupt data fall back to in-memory operation without breaking live updates.
+Clearing site data removes this cache, not server history.
+
+`/api/events/sync` advertises the server's active mode without exposing database
+configuration. In durable mode the first load uses `/api/events/stored` and later
+polls use `/api/events/changes`. Every page is applied by stable event ID, keeping
+the newest sequence. The client advances its saved cursor only with the matching
+data. HTTP 410 replaces both from a fresh bootstrap. A backlog exceeding 20 pages
+also uses bootstrap. A durable server outage never silently enables request-driven
+source collection. The server sends compact observation/priority metadata with
+final pages so unchanged reports do not disappear merely because they have no new
+revision. The displayed durable view filters out observations older than 48 hours
+and ranks up to 300 matches locally; retained history remains on the server.
+
+Verification: reload after a successful sync, simulate offline, change Category,
+then reconnect. Cached rows should remain usable and clearly labelled; reconnect
+must catch up without duplicate cards. Cursor-reset and interrupted-page behavior
+also have automated tests. There is no cross-tab live synchronization yet; each
+tab owns its poller and persists complete checkpoints independently.
