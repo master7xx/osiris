@@ -276,9 +276,12 @@ export function parseGdacsRss(xml: string, now = Date.now()): IncomingEvent[] {
   for (const chunk of xml.split(/<item>/i).slice(1)) {
     const item = chunk.split(/<\/item>/i)[0];
     const title = xmlTag(item, 'title');
-    const lat = Number(xmlTag(item, 'geo:lat'));
-    const lng = Number(xmlTag(item, 'geo:long'));
-    if (!title || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const latText = xmlTag(item, 'geo:lat');
+    const lngText = xmlTag(item, 'geo:long');
+    if (!title || !latText || !lngText) continue;
+    const lat = Number(latText);
+    const lng = Number(lngText);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
     const eventType = xmlTag(item, 'gdacs:eventtype') || 'UNK';
     const eventId = xmlTag(item, 'gdacs:eventid') || `${lat}-${lng}-${title}`;
     const category = gdacsCategory(eventType);
