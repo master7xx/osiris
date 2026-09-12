@@ -1,8 +1,7 @@
 # Durable events and background ingestion
 
-Status: writer/migration foundation implemented; durable runtime integration remains planned. This is the next
-backend stage after the shared World Events UI. The running application still
-uses the process-local ledger and request-triggered collection.
+Status: optional writer, readers and collector implemented; deployment verification and later retention/UI stages remain planned. This is the next
+backend stage after the shared World Events UI. Default mode uses the process-local ledger; EVENT_READ_MODE=durable opts into database reads.
 
 ## Storage decision
 
@@ -129,7 +128,14 @@ revision checks; callers must reload/reconcile after a conflict, not blindly ret
 stale payloads. Derived age/ranking changes do not create a revision; future
 readers must calculate freshness from observation times.
 
-The writer is not wired into collectors or API routes. It does not yet implement
-lease fencing, source snapshots, pruning, tombstones, replay/bootstrap or fuzzy
-identity reconciliation. Until those gates pass it is an isolated store primitive,
-not a production durable deployment. No automatic background timer is introduced.
+The next slice adds repeatable-read bootstrap and bounded replay, the standalone
+collector, a database-time fenced lease and explicit durable API mode. A Compose
+override and native Windows commands are documented in README. Earlier sections
+remain the full target contract, not claims that all deployment gates have passed.
+
+Current deviations: bootstrap returns one complete response; no retention pruning
+or tombstones; collector schedules source groups together; exact source URL aliases
+are reconciled but ambiguous fuzzy merges require manual investigation. Successful
+signals persist for 48 hours and can still contribute to fused confidence. Source
+health is committed after event writes, so its timestamp may conservatively lag
+the newest stored event. Production deployment is not enabled automatically.

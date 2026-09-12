@@ -1,4 +1,7 @@
+import type { EventCategory } from './event-fusion';
 import type { ContinuousEvent } from './event-ledger';
+
+export const WORLD_EVENT_CATEGORIES = ['conflict', 'protest', 'political', 'earthquake', 'flood', 'wildfire', 'volcano', 'weather', 'cyber', 'infrastructure', 'aviation', 'maritime', 'other'] as const satisfies readonly EventCategory[];
 
 export interface EventFilters { category: string; severity: number; confidence: string; mappable: boolean }
 export const DEFAULT_EVENT_FILTERS: EventFilters = { category: '', severity: 0, confidence: '', mappable: false };

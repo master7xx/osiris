@@ -1,8 +1,10 @@
-import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { migrateEvents } from '../../tools/migrate-events.mjs';
 import { DurableEventStore, type EventWrite } from './durable-event-store';
+import { acquireCollectorLease } from './event-collector-lease';
+import { DurableEventReader } from './durable-event-reader';
 import type { FusedEvent } from './event-fusion';
 
 const databaseUrl = process.env.EVENT_TEST_DATABASE_URL;
@@ -27,7 +29,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     store = new DurableEventStore(pool);
   });
   beforeEach(async () => {
-    await pool.query('TRUNCATE osiris_events.batches, osiris_events.evidence, osiris_events.identities, osiris_events.revisions, osiris_events.events');
+    await pool.query('TRUNCATE osiris_events.collector, osiris_events.signals, osiris_events.batches, osiris_events.evidence, osiris_events.identities, osiris_events.revisions, osiris_events.events');
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
@@ -85,4 +87,68 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     const ambiguous = write(); ambiguous.identities.push(other.identities[0]);
     await expect(store.commitBatch(randomUUID(), [ambiguous])).rejects.toThrow('Identity conflict');
   });
+  it('pages a fixed replay boundary while concurrent ingestion advances the store', async () => {
+    await store.commitBatch(randomUUID(), [write()]);
+    await store.commitBatch(randomUUID(), [write({ title: 'Second' }, '1')]);
+    const reader = new DurableEventReader(pool);
+    const page = await reader.changes(undefined, 1);
+    expect(page.has_more).toBe(true);
+    await store.commitBatch(randomUUID(), [write({ title: 'Third' }, '2')]);
+    const end = await reader.changes(page.cursor, 1);
+    expect(end.changes.map(row => row.cursor)).toEqual(['2']);
+    expect(end.has_more).toBe(false);
+    expect((await reader.changes(end.cursor)).changes.map(row => row.cursor)).toEqual(['3']);
+  });
+  it('bootstraps current events and resumes without replaying earlier revisions', async () => {
+    const first = await store.commitBatch(randomUUID(), [write()]);
+    const reader = new DurableEventReader(pool);
+    const snapshot = await reader.bootstrap();
+    expect(snapshot.events[0].id).toBe(first.events[0].id);
+    expect((await reader.changes(snapshot.cursor)).changes).toEqual([]);
+    await store.commitBatch(randomUUID(), [write({ title: 'Second' }, '1')]);
+    expect((await reader.changes(snapshot.cursor)).changes).toHaveLength(1);
+  });
+  it('requires reset for malformed cursors and after epoch rotation', async () => {
+    const reader = new DurableEventReader(pool);
+    const snapshot = await reader.bootstrap();
+    await expect(reader.changes('bad')).rejects.toThrow('bootstrap required');
+    await pool.query('UPDATE osiris_events.metadata SET epoch=$1', [randomUUID()]);
+    await expect(reader.changes(snapshot.cursor)).rejects.toThrow('bootstrap required');
+  });
+
+  it('fences a paused collector after lease expiry and takeover', async () => {
+    const first = await acquireCollectorLease(pool, randomUUID());
+    expect(first).not.toBeNull();
+    expect(await acquireCollectorLease(pool, randomUUID())).toBeNull();
+    await expect(store.commitBatch(randomUUID(), [write()])).rejects.toThrow('lease');
+    await pool.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()-interval '1 second'");
+    const second = await acquireCollectorLease(pool, randomUUID());
+    expect(BigInt(second!.generation)).toBeGreaterThan(BigInt(first!.generation));
+    await expect(store.commitBatch(randomUUID(), [write()], first!)).rejects.toThrow('lease');
+    await store.commitBatch(randomUUID(), [write()], second!);
+  });
+
+  it('serves durable API data without starting network collection', async () => {
+    const lease = (await acquireCollectorLease(pool, randomUUID()))!;
+    await store.commitBatch(randomUUID(), [write()], lease);
+    await pool.query("UPDATE osiris_events.collector SET last_success_at=clock_timestamp(),source_health='[]'");
+    const previousMode = process.env.EVENT_READ_MODE;
+    const previousUrl = process.env.EVENT_DATABASE_URL;
+    process.env.EVENT_READ_MODE = 'durable'; process.env.EVENT_DATABASE_URL = databaseUrl;
+    const fetchMock = vi.fn(() => { throw new Error('Network collection must not run'); });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const { getUnifiedEventFeed } = await import('./event-feed');
+      const result = await getUnifiedEventFeed();
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0].title).toBe('Reported earthquake');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (previousMode === undefined) delete process.env.EVENT_READ_MODE; else process.env.EVENT_READ_MODE = previousMode;
+      if (previousUrl === undefined) delete process.env.EVENT_DATABASE_URL; else process.env.EVENT_DATABASE_URL = previousUrl;
+      await globalThis.__OSIRIS_EVENT_DATABASE__?.end(); globalThis.__OSIRIS_EVENT_DATABASE__ = undefined;
+      vi.unstubAllGlobals();
+    }
+  });
+
 });

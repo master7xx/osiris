@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import { useWorldEvents } from './WorldEventsProvider';
-import { isMappable, safeEventUrl } from '@/lib/world-events-view';
+import { isMappable, safeEventUrl, WORLD_EVENT_CATEGORIES } from '@/lib/world-events-view';
 import { SeverityBadge, SourceBadge } from './WorldEventBadges';
 import './world-events.css';
 
@@ -9,7 +9,9 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
   const feed = useWorldEvents();
   const selected = useRef<HTMLElement | null>(null);
   useEffect(() => { selected.current?.scrollIntoView({ block: 'nearest' }); }, [feed.selectedId, feed.mapSelection]);
-  const categories = [...new Set(feed.snapshot?.events.map(event => event.category) ?? [])].sort();
+  const list = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { list.current?.scrollTo({ top: 0 }); }, [feed.filters.category, feed.filters.severity, feed.filters.confidence, feed.filters.mappable]);
+  const categories = WORLD_EVENT_CATEGORIES;
   return <section className="world-events" aria-label="World events">
     <div className="world-events-filters">
       <strong>WORLD EVENTS · {feed.events.length}</strong>
@@ -25,7 +27,7 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} sources · Snapshot {new Date(feed.snapshot.generated_at).toLocaleTimeString([], { timeZone: 'UTC', hour12: false })} UTC</span>}
       <button type="button" disabled={feed.loading} onClick={() => void feed.refresh()}>Refresh</button>
     </div>
-    <div className="world-events-list">
+    <div ref={list} className="world-events-list">
       {feed.selectedId && !feed.events.some(event => event.id === feed.selectedId) && <p role="status">Selected event is outside the current filters or snapshot.</p>}
       {!feed.loading && !feed.error && !feed.events.length && <p>No events match these filters.</p>}
       {feed.events.map(event => <article key={event.id} ref={event.id === feed.selectedId ? selected : undefined} className="world-event-card" data-selected={event.id === feed.selectedId}>

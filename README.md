@@ -85,7 +85,9 @@ the corresponding header control; Escape closes a focused side panel.
 
 The right panel and phone event panel now use one `/api/events?limit=300`
 snapshot shared with map markers. Category, minimum severity, confidence and
-located-only filters apply to both views. Clicking a card locates a reliably
+located-only filters apply to both views. Category choices stay stable across
+refreshes; a category with no events shows an empty list, and changing filters
+returns the list to its beginning. Clicking a card locates a reliably
 positioned event; clicking its marker selects the card and opens the panel.
 Unlocated events stay in the list. Expanded cards show supporting sources;
 severity and corroboration confidence remain separate fields. All sources use the
@@ -319,41 +321,77 @@ MIT; see [LICENSE](LICENSE). This repository continues work from
 [simplifaisoul/osiris](https://github.com/simplifaisoul/osiris).
 Provider data, imagery and streams retain their own terms and attribution.
 
-## Durable event store: first implementation slice
+## Optional durable event pipeline
 
-The optional PostgreSQL writer and migration are implemented; the running map,
-`/api/events` and `/api/conflicts` still use the existing in-memory pipeline.
-No background collector or durable replay API is enabled yet.
+PostgreSQL migrations, transactional writes, bootstrap/replay readers and a
+separately runnable collector are implemented. Default mode remains the existing
+request-driven pipeline. Set `EVENT_READ_MODE=durable` explicitly to make
+`/api/events` and `/api/conflicts` read the database without collecting upstreams.
+A database or collector failure does not silently switch back to live ingestion.
 
-`DurableEventStore.commitBatch` atomically persists exact upstream identity
-mappings, current event payload, retained evidence and immutable revisions.
-A batch UUID makes retries idempotent; conflicting updates require the caller to
-reload the current revision. Cursor values are decimal strings, serialized under
-a metadata-row lock. Historical evidence is kept separately from current-event
-confidence. This first slice accepts exact upstream identities and does not yet
-integrate the fuzzy continuity matcher, source schedules, lease fencing or pruning.
-
-Use PostgreSQL 17 (the integration CI target). In PowerShell, with a database you
-created for this application:
+Use PostgreSQL 17, the integration CI target. Create a database, then in PowerShell:
 
 ```powershell
 $env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
 npm run events:migrate
+npm run events:collect
 ```
 
-This creates the `osiris_events` schema and records a migration checksum;
-re-running it is safe. It does not switch application reads to PostgreSQL.
+In a second terminal, in the repository:
 
-Database tests require a **dedicated disposable database whose name ends in
-`_test`**; they truncate all event-store records in that database:
+```powershell
+$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
+$env:EVENT_READ_MODE = "durable"
+npm run dev
+```
+
+Wait for the collector's first successful commit. Until then, durable reads report
+unavailability. Ctrl+C stops the collector; stored events survive its restart.
+Migrations are transactional and checksum-checked. No timer runs inside Next.js.
+
+- `/api/events/stored` returns all retained current records and a consistent
+  opaque replay cursor. It also exposes the last collector success/error.
+- `/api/events/changes?cursor=TOKEN&limit=100` returns unfiltered immutable revisions,
+  ordered by cursor. Pages retain a fixed upper boundary during concurrent ingest;
+  after the final page the next request starts a new polling boundary.
+- Invalid/expired cursors or an epoch mismatch require bootstrap (HTTP 410).
+- The existing numeric `since` API remains latest-state compatibility only;
+  durable replay uses the separate opaque cursor endpoint.
+
+The collector runs core and supplemental adapters together every ~90 seconds,
+with bounded exponential backoff on failure. Successful raw signals remain for
+48 hours to survive missing-source responses. Database-time leases and fencing
+reject writes from expired owners. Ambiguous identities are skipped and reported
+in collector status. Sources still use existing adapter timeouts; independent
+per-source schedules and automatic fuzzy reconciliation remain future work.
+Historical evidence stays separate from the current event payload, but retained
+signals may still contribute to confidence within the observation window.
+
+For Docker, set a strong URL-safe `EVENT_DB_PASSWORD` (for example a random hex
+string) in `.env`, then:
+
+```bash
+docker compose -f docker-compose.yml -f compose.events.yml up --build -d
+```
+
+The override adds PostgreSQL with a persistent volume and a collector service,
+and enables durable reads in the web service. Existing base Compose prerequisites
+still apply, including its external `umami_default` network. Do not delete the
+`event-data` volume to restart services. Native Windows may use a native or remote
+PostgreSQL installation without Docker. Docker deployment has not been exercised
+in this workspace; verify on the target host before switching production.
+
+Database tests require a **dedicated disposable database ending in `_test`**:
 
 ```powershell
 $env:EVENT_TEST_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events_test"
 npm run test:event-store
 ```
 
-Ordinary `npm test` skips these database tests without the test URL. The dedicated
-PostgreSQL CI job supplies a disposable database; Windows CI continues to check
-the application build and smoke startup. See the
-[durable-store contract](docs/architecture/durable-events.md) for the remaining
-reader, replay, collector and deployment work.
+Tests truncate event-store records in that test database. Ordinary `npm test`
+skips database integration without this variable; CI supplies PostgreSQL.
+
+Remaining limits: bootstrap is a single response; event/revision history has no
+automatic pruning or tombstones yet. The UI still polls ranked snapshots rather
+than replay. Explicit expiry, per-source schedules, replay-based UI and measured
+host recovery remain rollout work. See the [architecture contract](docs/architecture/durable-events.md).

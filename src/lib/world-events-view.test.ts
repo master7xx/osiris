@@ -21,4 +21,19 @@ describe('shared map and list filtering', () => {
     expect(safeEventUrl('https://example.org/news')).toBe('https://example.org/news');
     for (const url of ['javascript:alert(1)', 'data:text/html,test', '/relative', 'invalid']) expect(safeEventUrl(url)).toBeUndefined();
   });
+  it('switches categories and restores all events without retaining the previous list', () => {
+    const items = [event(), event({ id: 'quake', category: 'earthquake' }), event({ id: 'quake-unlocated', category: 'earthquake', lat: undefined })];
+    const select = (category: string) => filterWorldEvents(items, { ...DEFAULT_EVENT_FILTERS, category });
+    expect(select('conflict').map(item => item.id)).toEqual(['one']);
+    expect(select('earthquake').map(item => item.id)).toEqual(['quake', 'quake-unlocated']);
+    expect(select('earthquake').filter(isMappable).map(item => item.id)).toEqual(['quake']);
+    expect(select('wildfire')).toEqual([]);
+    expect(select('')).toEqual(items);
+  });
+  it('keeps category filtering active when a refreshed snapshot has no matching events', () => {
+    const filters = { ...DEFAULT_EVENT_FILTERS, category: 'earthquake' };
+    expect(filterWorldEvents([event({ category: 'earthquake' })], filters)).toHaveLength(1);
+    expect(filterWorldEvents([event()], filters)).toEqual([]);
+  });
+
 });

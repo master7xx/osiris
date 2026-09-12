@@ -35,7 +35,7 @@ function normalizedContent(event: FusedEvent) {
 export class DurableEventStore {
   constructor(private readonly pool: Pool) {}
 
-  async commitBatch(batchId: string, input: EventWrite[]): Promise<BatchResult> {
+  async commitBatch(batchId: string, input: EventWrite[], lease?: { owner: string; generation: string }): Promise<BatchResult> {
     if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(batchId)) throw new Error('Invalid batch UUID');
     if (!input.length || input.length > 300) throw new Error('Batch must contain 1–300 events');
     // Snapshot before waiting for a connection; callers cannot mutate a queued batch.
@@ -52,6 +52,8 @@ export class DurableEventStore {
       await client.query("SET LOCAL statement_timeout = '30s'");
       const meta = await client.query<{ epoch: string; cursor: string }>('SELECT epoch, cursor FROM osiris_events.metadata WHERE singleton FOR UPDATE');
       if (!meta.rows.length) throw new Error('Event store requires migration');
+      const ownership = (await client.query('SELECT owner,generation,expires_at>clock_timestamp() AS active FROM osiris_events.collector WHERE singleton')).rows[0];
+      if (lease ? !ownership?.active || ownership.owner !== lease.owner || ownership.generation !== lease.generation : ownership?.active) throw new Error('Collector lease required or expired');
       const prior = await client.query<{ input_hash: string; result: BatchResult }>('SELECT input_hash, result FROM osiris_events.batches WHERE id=$1', [batchId]);
       if (prior.rows.length) {
         if (prior.rows[0].input_hash !== inputHash) throw new Error('Batch ID reused with different input');
@@ -79,7 +81,7 @@ export class DurableEventStore {
           [id, revision, cursor.toString(), contentHash, JSON.stringify(payload)]);
           await client.query('INSERT INTO osiris_events.revisions (cursor,event_id,revision,payload) VALUES ($1,$2,$3,$4)', [cursor.toString(), id, revision, JSON.stringify(payload)]);
         } else {
-          await client.query('UPDATE osiris_events.events SET last_observed_at=clock_timestamp() WHERE id=$1', [id]);
+          await client.query('UPDATE osiris_events.events SET last_observed_at=clock_timestamp(),payload=$2 WHERE id=$1', [id, JSON.stringify({ ...write.event, id })]);
         }
         for (const identity of write.identities) await client.query(`INSERT INTO osiris_events.identities (source_id,upstream_id,event_id)
           VALUES ($1,$2,$3) ON CONFLICT (source_id,upstream_id) DO NOTHING`, [identity.sourceId, identity.upstreamId, id]);

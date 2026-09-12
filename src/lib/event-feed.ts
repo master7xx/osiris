@@ -79,6 +79,10 @@ async function buildUnifiedEventFeed(now = Date.now()): Promise<UnifiedEventFeed
 }
 
 export async function getUnifiedEventFeed(options: { now?: number; force?: boolean } = {}): Promise<UnifiedEventFeed> {
+  if (process.env.EVENT_READ_MODE === 'durable') {
+    const { readDurableUnifiedFeed } = await import('./durable-event-feed');
+    return readDurableUnifiedFeed();
+  }
   const state = cache();
   const now = options.now ?? Date.now();
   if (!options.force && state.value && now < state.expires_at) return structuredClone(state.value);

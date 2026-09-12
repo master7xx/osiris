@@ -16,6 +16,7 @@
     "test:live": "node tools/run-live-tests.mjs",
     "doctor": "node tools/windows-doctor.mjs",
     "smoke:windows": "node tools/windows-smoke.mjs",
+    "events:collect": "node --import tsx tools/collect-events.ts",
     "events:migrate": "node tools/migrate-events.mjs",
     "test:event-store": "node tools/test-event-store.mjs"
   },
@@ -51,6 +52,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "typescript": "^5",
     "vitest": "^2.1.9"
   }
