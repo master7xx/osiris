@@ -13,7 +13,7 @@ Windows development and a Docker standalone build.
 [Issues](https://github.com/master7xx/osiris/issues) ·
 [Pull requests](https://github.com/master7xx/osiris/pulls) ·
 [Event architecture audit](docs/unified-event-audit.md) ·
-[Durable-store design — planned](docs/architecture/durable-events.md)
+[Durable-store architecture and rollout](docs/architecture/durable-events.md)
 
 ## Current capabilities
 
@@ -169,14 +169,15 @@ evidence can produce `confirmed` without a second report.
 - Partial source failures allow healthy sources to contribute. When a refresh
   fails entirely, concurrent readers receive the last successful snapshot if
   one exists, with a short retry cooldown. Its generation time remains old.
-- The world-event marker component polls every 90 seconds and requires coordinates
+- The shared world-event client polls every 90 seconds and requires coordinates
   with sufficient location confidence. Events without usable coordinates can
   remain in the API feed.
 
-**There is no durable event store or independent background collector yet.**
-Collection is request-driven. Restarts reset identity state and cursors; separate
-workers have separate state. The feed is capped at 300 fused events. Evidence or
-events absent from a later collection are not guaranteed to remain visible.
+**Default mode is request-driven and process-local.** Restarts reset its
+identity state and cursors; separate workers have separate state. Its snapshot is
+capped at 300 fused events and may lose events absent from later collections.
+The [optional durable pipeline](#optional-durable-event-pipeline) adds PostgreSQL
+history and an independent collector through explicit configuration.
 
 ## Event API
 
@@ -303,12 +304,14 @@ are `npx tsc --noEmit` and `npm run lint`.
 
 ## Next work and documentation maintenance
 
-The next architectural steps are a durable event/revision store with monotonic
-cursors, background ingestion, remaining report adapters (including NWS, NOAA and
-cyber advisories), and migration of additional consumers to shared ingestion.
-These are planned work, not completed capabilities. The
-[architecture audit](docs/unified-event-audit.md) records the source inventory,
-limitations and acceptance criteria.
+The next steps are target-host recovery verification, history retention and
+tombstones, independently scheduled sources, replay-based UI updates, remaining
+report adapters (NWS, NOAA and cyber advisories), and further consumer convergence.
+The PostgreSQL writer, readers and collector are implemented as an optional mode;
+production rollout and the remaining work are not claimed complete. The
+[architecture audit](docs/unified-event-audit.md) records the original baseline,
+and the [durable contract](docs/architecture/durable-events.md) tracks current
+implementation limits and acceptance criteria.
 
 Update this README in the same PR as changes to behavior, APIs, source coverage,
 configuration, setup or deployment. Keep implemented behavior separate from plans,
