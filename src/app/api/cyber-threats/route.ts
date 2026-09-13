@@ -1,3 +1,4 @@
+import { fetchKevCatalog, recentKevEntries } from '@/lib/cisa-kev';
 import { NextResponse } from 'next/server';
 
 // Cyber threat intelligence from public feeds
@@ -9,19 +10,10 @@ export async function GET() {
 
     // 1. CISA Known Exploited Vulnerabilities (authoritative US govt source)
     try {
-      const res = await fetch('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', { signal: AbortSignal.timeout(15000),
-        
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const recent = (data.vulnerabilities || [])
-          .filter((v: any) => {
-            const added = new Date(v.dateAdded);
-            const daysAgo = (Date.now() - added.getTime()) / (1000 * 60 * 60 * 24);
-            return daysAgo <= 30;
-          })
-          .slice(0, 10)
-          .map((v: any) => ({
+      const data = await fetchKevCatalog();
+      {
+        const recent = recentKevEntries(data).slice(0, 10)
+          .map((v) => ({
             id: v.cveID,
             name: v.vulnerabilityName,
             vendor: v.vendorProject,
