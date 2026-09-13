@@ -6,8 +6,8 @@
     "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "dev:windows": "next dev -H 0.0.0.0",
+    "dev": "node --import tsx tools/dev.ts",
+    "dev:windows": "node --import tsx tools/dev.ts -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
