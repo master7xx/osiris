@@ -17,6 +17,7 @@
 
 interface Entry<T> {
   data: T[];
+  failed?: boolean;
   expiresAt: number;
   inflight: Promise<T[]> | null;
 }
@@ -55,7 +56,7 @@ export function cachedSource<T>(
     const now = Date.now();
     const entry = store.get(key) as Entry<T> | undefined;
 
-    if (entry && now < entry.expiresAt && entry.data.length > 0) return entry.data;
+    if (entry && now < entry.expiresAt && (entry.data.length > 0 || entry.failed)) return entry.data;
     if (entry?.inflight) return entry.inflight;
 
     const inflight = (async () => {
@@ -72,11 +73,11 @@ export function cachedSource<T>(
         if (entry?.data.length) {
           console.warn(`[OSIRIS] ${key} refresh failed — serving ${entry.data.length} cached cameras`);
           // Retry sooner than a full TTL, but don't hammer the failing upstream.
-          store.set(key, { data: entry.data, expiresAt: now + 60_000, inflight: null });
+          store.set(key, { data: entry.data, expiresAt: Date.now() + 60_000, inflight: null, failed: true });
           return entry.data;
         }
         console.warn(`[OSIRIS] ${key} fetch failed with no cache to fall back on:`, e);
-        store.set(key, { data: [], expiresAt: now + 60_000, inflight: null });
+        store.set(key, { data: [], expiresAt: Date.now() + 60_000, inflight: null, failed: true });
         return [];
       }
     })();

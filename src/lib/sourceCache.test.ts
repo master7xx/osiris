@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { cachedSource, clearSourceCache } from './sourceCache';
 
 type Cam = { id: string };
@@ -68,6 +68,30 @@ describe('cachedSource', () => {
   it('returns empty when the first fetch fails with nothing cached', async () => {
     const load = cachedSource<Cam>('t6', async () => { throw new Error('down'); });
     expect(await load()).toEqual([]);
+  });
+
+  it('backs off cold failures from completion time and recovers on one shared retry', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const load = cachedSource<Cam>('cold-retry', async () => {
+        calls++;
+        await new Promise(resolve => setTimeout(resolve, 12000));
+        if (calls === 1) throw new Error('timeout');
+        return [cam('recovered')];
+      });
+      const first = load();
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(await first).toEqual([]);
+      await vi.advanceTimersByTimeAsync(59999);
+      expect(await load()).toEqual([]);
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const retries = [load(), load(), load()];
+      await vi.advanceTimersByTimeAsync(12000);
+      expect(await Promise.all(retries)).toEqual([[cam('recovered')], [cam('recovered')], [cam('recovered')]]);
+      expect(calls).toBe(2);
+    } finally { vi.useRealTimers(); }
   });
 
   it('keeps separate keys independent', async () => {
