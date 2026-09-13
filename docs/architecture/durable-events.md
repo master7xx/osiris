@@ -12,9 +12,10 @@ existing audit's restart recovery and concurrent-writer requirements.
 
 The web server and collector are separate processes using the same database.
 Native Windows runs both Node processes and connects to native or remote
-PostgreSQL. Docker needs a separate collector service and a persistent database
-volume; the current standalone web image alone does not run a collector. These
-services and configuration are planned, not shipped by this document.
+PostgreSQL. In durable development mode, `npm run dev` supervises both processes
+in one terminal and stops both on Ctrl+C or a child exit. Docker uses the shipped
+collector service override and a persistent database volume; the standalone web
+image alone does not run a collector. Production processes remain separate.
 
 ## Records and invariants
 

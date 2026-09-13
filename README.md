@@ -334,25 +334,36 @@ request-driven pipeline. Set `EVENT_READ_MODE=durable` explicitly to make
 `/api/events` and `/api/conflicts` read the database without collecting upstreams.
 A database or collector failure does not silently switch back to live ingestion.
 
-Use PostgreSQL 17, the integration CI target. Create a database, then in PowerShell:
+Use PostgreSQL 17, the integration CI target. Create a database and save these
+settings in the repository's `.env.local`:
 
-```powershell
-$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
-npm run events:migrate
-npm run events:collect
+```dotenv
+EVENT_DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/osiris_events
+EVENT_READ_MODE=durable
 ```
 
-In a second terminal, in the repository:
+Apply migrations once (and when a later update adds migrations), then start:
 
 ```powershell
-$env:EVENT_DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/osiris_events"
-$env:EVENT_READ_MODE = "durable"
+node --env-file=.env.local tools/migrate-events.mjs
 npm run dev
 ```
 
-Wait for the collector's first successful commit. Until then, durable reads report
-unavailability. Ctrl+C stops the collector; stored events survive its restart.
-Migrations are transactional and checksum-checked. No timer runs inside Next.js.
+`npm run dev` and `npm run dev:windows` now start both Next.js and the collector
+in one terminal when `EVENT_READ_MODE=durable`. Both receive Next's development
+environment-file settings; existing shell variables take precedence. Missing
+`EVENT_DATABASE_URL` in durable mode fails before either process starts. Snapshot
+mode starts only Next.js. Extra arguments, such as `npm run dev -- --port 3001`,
+are forwarded only to Next.js. Restart the command after changing environment
+settings. Stop any previously launched standalone collector before using this.
+
+Ctrl+C stops the session and its child processes; an unexpected child exit stops
+the other process and returns a failing exit code. Windows uses `taskkill /T /F`
+to include Next's workers. PostgreSQL remains running. Wait for the collector's
+first successful commit; until then durable reads report unavailability.
+Migrations remain explicit, transactional and checksum-checked. Production
+`npm start`, Docker and the standalone `events:collect` command are unchanged;
+no collection timer runs inside Next.js.
 
 - `/api/events/stored` returns all retained current records and a consistent
   opaque replay cursor. It also exposes the last collector success/error.
