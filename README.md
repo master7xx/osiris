@@ -657,3 +657,12 @@ The legacy endpoint retains its existing response fields and ten-item limit.
 Durable installations must update the server collector; no migration is needed.
 
 Schema: [CISA's official KEV schema](https://github.com/cisagov/kev-data/blob/develop/known_exploited_vulnerabilities_schema.json).
+
+### Large-response cache and camera retry behavior
+
+The stats endpoint reads flight, satellite and CCTV responses with `no-store`
+to avoid inserting multi-megabyte payloads into Next.js Data Cache. Its compact
+response retains the existing HTTP cache policy. Camera source caching remains
+independent. Failed camera fetches wait 60 seconds after failure before retrying,
+even when no previous camera index exists; an existing index is preserved.
+Upstream timeouts and invalid provider payloads still report source errors.
