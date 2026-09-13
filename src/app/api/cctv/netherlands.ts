@@ -1,3 +1,4 @@
+import { cachedSource } from '@/lib/sourceCache';
 import type { CctvCamera } from './types';
 import { stealthFetch } from '@/lib/stealthFetch';
 
@@ -79,7 +80,7 @@ export function parseRwsCameras(payload: unknown): CctvCamera[] {
   return cams;
 }
 
-export async function fetchNetherlandsCameras(): Promise<CctvCamera[]> {
+async function loadNetherlandsCameras(): Promise<CctvCamera[]> {
   const res = await stealthFetch(CAMERAS_JSON, {
     signal: AbortSignal.timeout(10000),
     headers: { Accept: 'application/json' },
@@ -90,3 +91,6 @@ export async function fetchNetherlandsCameras(): Promise<CctvCamera[]> {
   console.log(`[OSIRIS] Netherlands cameras — Rijkswaterstaat: ${cams.length}`);
   return cams;
 }
+
+// Europe enrichment and the standalone region share one upstream request.
+export const fetchNetherlandsCameras = cachedSource('netherlands-rws', loadNetherlandsCameras);

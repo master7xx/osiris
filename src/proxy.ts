@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest, NextFetchEvent } from 'next/server';
 
-export function middleware(request: NextRequest, event: NextFetchEvent) {
+export function proxy(request: NextRequest, event: NextFetchEvent) {
   const url = request.nextUrl.pathname;
 
   const requestId = request.headers.get('x-osiris-request-id') || crypto.randomUUID();

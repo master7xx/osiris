@@ -69,6 +69,17 @@ export function mapUsgsAshcam(row: UsgsAshcamRow): CctvCamera | null {
   };
 }
 
+/** Ashcam currently wraps its records in a webcams array. */
+export function ashcamRows(payload: unknown): UsgsAshcamRow[] {
+  const rows = Array.isArray(payload) ? payload
+    : payload && typeof payload === 'object' && 'webcams' in payload ? payload.webcams : undefined;
+  if (!Array.isArray(rows)) throw new Error('USGS Ashcam returned no webcams array');
+  if (rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) {
+    throw new Error('USGS Ashcam returned an invalid camera row');
+  }
+  return rows;
+}
+
 async function loadUsgsVolcanoCameras(): Promise<CctvCamera[]> {
   const started = Date.now();
   try {
@@ -79,10 +90,9 @@ async function loadUsgsVolcanoCameras(): Promise<CctvCamera[]> {
     if (!response.ok) throw new Error(`USGS Ashcam HTTP ${response.status}`);
 
     const payload = await response.json();
-    if (!Array.isArray(payload)) throw new Error('USGS Ashcam returned a non-array payload');
 
     const seen = new Map<string, CctvCamera>();
-    for (const row of payload as UsgsAshcamRow[]) {
+    for (const row of ashcamRows(payload)) {
       const camera = mapUsgsAshcam(row);
       if (camera) seen.set(camera.id, camera);
     }

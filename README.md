@@ -666,3 +666,16 @@ response retains the existing HTTP cache policy. Camera source caching remains
 independent. Failed camera fetches wait 60 seconds after failure before retrying,
 even when no previous camera index exists; an existing index is preserved.
 Upstream timeouts and invalid provider payloads still report source errors.
+
+### Request proxy and Netherlands camera collection
+
+Request correlation and optional Umami forwarding now use `src/proxy.ts`, the
+Next.js 16 convention, with the existing matcher and headers preserved.
+Netherlands camera loads from Europe enrichment and direct regional requests
+share the RWS source cache and in-flight request within a server module instance.
+This does not deduplicate across separate processes or guarantee a single log
+line across development reloads.
+
+The USGS Ashcam adapter accepts its observed `{ "webcams": [...] }` response
+envelope as well as the legacy array. Unexpected envelopes remain source errors.
+This fixes catalog parsing, not the availability or freshness of individual images.
