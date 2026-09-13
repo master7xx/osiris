@@ -396,6 +396,19 @@ npm run test:event-store
 Tests truncate event-store records in that test database. Ordinary `npm test`
 skips database integration without this variable; CI supplies PostgreSQL.
 
+The database suite includes 60 simulated observation cycles with a retained
+report during missed polls, source recovery, a new writer connection/lease owner,
+and one corrected report. It checks stable event identities and replay cursors:
+unchanged observations update freshness without adding event revisions. This is
+a database regression test, not a long-running live-provider soak test.
+
+Storage still grows: each committed batch adds an idempotency receipt to
+`osiris_events.batches`, including unchanged batches. New events and material
+corrections add revisions. Neither receipts nor revision history are pruned
+automatically; the collector's 48-hour signal cleanup does not bound total
+database size. Do not delete receipts or revisions manually while relying on
+batch retry or replay guarantees.
+
 Remaining limits: bootstrap is a single response; event/revision history has no
 automatic pruning or tombstones yet. The UI uses replay in durable mode and ranked snapshots in default mode. Explicit expiry, per-source schedules, replay-based UI and measured
 host recovery remain rollout work. See the [architecture contract](docs/architecture/durable-events.md).

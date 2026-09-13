@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { migrateEvents } from '../../tools/migrate-events.mjs';
 import { DurableEventStore, type EventWrite } from './durable-event-store';
-import { acquireCollectorLease } from './event-collector-lease';
+import { acquireCollectorLease, releaseCollectorLease } from './event-collector-lease';
 import { DurableEventReader } from './durable-event-reader';
-import { collectorIdentities } from './collector-observations';
+import { collectorIdentities, observationIndex } from './collector-observations';
 import type { FusedEvent } from './event-fusion';
 
 const databaseUrl = process.env.EVENT_TEST_DATABASE_URL;
@@ -34,6 +34,69 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
+
+  it('keeps identities, replay and history stable across 60 observation cycles and a writer restart', async () => {
+    const reader = new DurableEventReader(pool);
+    let replayCursor = (await reader.bootstrap()).cursor;
+    let owner = randomUUID();
+    let activePool = pool;
+    let restartedPool: pg.Pool | undefined;
+    let writer = store;
+    const stableIds = new Map<string, string>();
+    const baseTime = Date.parse('2026-09-10T00:00:00Z');
+    let observedA = '';
+    try {
+      for (let cycle = 0; cycle < 60; cycle++) {
+        if (cycle === 35) {
+          restartedPool = new pg.Pool({ connectionString: databaseUrl });
+          activePool = restartedPool;
+          writer = new DurableEventStore(activePool);
+          owner = randomUUID();
+        }
+        const stamp = new Date(baseTime + cycle * 90000).toISOString();
+        // A is retained during ten missed polls; B continues to be observed.
+        if (cycle < 20 || cycle >= 30) observedA = stamp;
+        const reports = ['A', 'B'].map(serial => event({
+          id: `transient-${serial}-${cycle}`,
+          description: serial === 'A' && cycle >= 40 ? 'Corrected report' : 'Original report',
+          age_minutes: cycle, priority_score: 100 - cycle,
+          first_seen_at: stamp, last_seen_at: stamp,
+          evidence: [{ source_id: 'bulletins', source: 'Bulletins', kind: 'official', independent: true,
+            weight: 1, upstream_id: serial, url: 'https://example.org/bulletins' }],
+        }));
+        const observedAt = observationIndex(reports.map(report => ({
+          payload: report, observed_at: report.evidence[0].upstream_id === 'A' ? observedA : stamp,
+        })));
+        const previous = (await reader.bootstrap()).events;
+        const lease = (await acquireCollectorLease(activePool, owner))!;
+        expect(lease).not.toBeNull();
+        try {
+          await writer.commitBatch(randomUUID(), reports.map(report => ({
+            event: report, identities: collectorIdentities(report), observedAt: observedAt(report),
+            expectedRevision: previous.find(row => row.payload.evidence[0].upstream_id === report.evidence[0].upstream_id)?.revision ?? null,
+          })), lease);
+        } finally { await releaseCollectorLease(activePool, lease); }
+        const snapshot = await reader.bootstrap();
+        expect(snapshot.events).toHaveLength(2);
+        for (const row of snapshot.events) {
+          const serial = row.payload.evidence[0].upstream_id as string;
+          if (cycle === 0) stableIds.set(serial, row.id);
+          expect(row.id).toBe(stableIds.get(serial));
+          expect(row.revision).toBe(serial === 'A' && cycle >= 40 ? '2' : '1');
+          expect(row.last_observed_at.toISOString()).toBe(serial === 'A' ? observedA : stamp);
+        }
+        const replay = await reader.changes(replayCursor);
+        expect(replay.changes).toHaveLength(cycle === 0 ? 2 : cycle === 40 ? 1 : 0);
+        expect(replay.observations).toHaveLength(2);
+        expect(replay.has_more).toBe(false);
+        replayCursor = replay.cursor;
+      }
+      for (const [table, count] of [['events', '2'], ['identities', '2'], ['evidence', '2'], ['revisions', '3'], ['batches', '60']]) {
+        expect((await pool.query(`SELECT count(*) FROM osiris_events.${table}`)).rows[0].count).toBe(count);
+      }
+      expect((await pool.query('SELECT cursor FROM osiris_events.metadata')).rows[0].cursor).toBe('3');
+    } finally { await restartedPool?.end(); }
+  }, 30000);
 
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
     const bulletin = (serial: string, description = 'Original') => event({
