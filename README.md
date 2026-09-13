@@ -660,10 +660,10 @@ Schema: [CISA's official KEV schema](https://github.com/cisagov/kev-data/blob/de
 
 ### Large-response cache and camera retry behavior
 
-The stats endpoint reads flight, satellite and CCTV responses with `no-store`
-to avoid inserting multi-megabyte payloads into Next.js Data Cache. Its compact
-response retains the existing HTTP cache policy. Camera source caching remains
-independent. Failed camera fetches wait 60 seconds after failure before retrying,
+The stats endpoint reads flight and satellite responses with `no-store`
+to avoid inserting multi-megabyte payloads into Next.js Data Cache. CCTV uses
+existing coverage metadata without fetching a camera response. The compact
+stats response also uses `no-store`. Camera source caching remains independent. Failed camera fetches wait 60 seconds after failure before retrying,
 even when no previous camera index exists; an existing index is preserved.
 Upstream timeouts and invalid provider payloads still report source errors.
 
@@ -686,3 +686,19 @@ responses in both development and production modes. After changing between
 proxy and middleware branches, stop the dev session and remove only the generated
 `.next` directory before restarting. This does not remove environment files,
 PostgreSQL records or browser caches.
+
+### Stats without camera loading
+
+`/api/stats` no longer calls `/api/cctv`. It reads the last global camera coverage
+snapshot already produced by a normal camera request in the same server process.
+`stats.cctv` is `null` before any such snapshot exists, not zero. Regional snapshots
+do not replace the global count. `cctv_snapshot.state` is `cached` or `unavailable`,
+and `observed_at` is the camera snapshot time, not the stats response time. This
+count describes the returned catalog snapshot, which may have partial source
+coverage; it is not a count of currently working video streams. After a process
+restart or on another instance it can be unavailable until cameras are loaded.
+
+The compact stats response uses `no-store` so an unavailable count is not held
+in an HTTP cache. Other counters still fetch their existing APIs and can delay
+the response; no fixed latency is promised. Removed the dashboard's unused stats
+request/state: displayed layer counts already come from its other data paths.

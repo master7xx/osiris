@@ -73,10 +73,10 @@ export const API_GROUPS: ApiGroup[] = [
         path: '/api/stats',
         method: 'GET',
         summary:
-          'Fans out to the heavy feeds in parallel and returns only the counts — roughly 100 bytes instead of 10 MB of GeoJSON.',
-        returns: ['stats', 'timestamp'],
+          'Returns counters; CCTV is read from an existing global snapshot without camera loading.',
+        returns: ['stats', 'cctv_snapshot', 'timestamp'],
         notes:
-          '`stats` contains `flights`, `sats`, `cctv`, `weather`, `nuclear`, `incidents`. Cached `s-maxage=30, stale-while-revalidate=60`, so 10k concurrent dashboard boots collapse into one upstream fetch per minute.',
+          '`stats.cctv` is null until a global snapshot exists in this server process. `cctv_snapshot.observed_at` identifies its age; cached counts may represent partial coverage. Response uses no-store. Other counters still query their APIs.',
       },
     ],
   },
