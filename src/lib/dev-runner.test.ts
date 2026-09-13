@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { devCommands, supervise } from '../../tools/dev';
 
 const fixture = `const fs = require('node:fs');
@@ -38,7 +39,7 @@ describe('combined development session', () => {
       delete env.EVENT_DATABASE_URL;
       delete env.__NEXT_PROCESSED_ENV;
       const require = createRequire(import.meta.url);
-      const result = spawnSync(process.execPath, ['--import', require.resolve('tsx'), join(process.cwd(), 'tools/dev.ts')], {
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(require.resolve('tsx')).href, join(process.cwd(), 'tools/dev.ts')], {
         cwd: dir, env, encoding: 'utf8', timeout: 10000,
       });
       expect(result.status).toBe(1);
