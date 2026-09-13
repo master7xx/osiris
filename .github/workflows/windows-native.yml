@@ -25,5 +25,6 @@ jobs:
         run: node tools/audit-lint.mjs
       - run: npm run doctor
       - run: npm test
+      - run: node tools/windows-smoke.mjs --dev
       - run: npm run build
       - run: npm run smoke:windows
