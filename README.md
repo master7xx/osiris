@@ -702,3 +702,14 @@ The compact stats response uses `no-store` so an unavailable count is not held
 in an HTTP cache. Other counters still fetch their existing APIs and can delay
 the response; no fixed latency is promised. Removed the dashboard's unused stats
 request/state: displayed layer counts already come from its other data paths.
+
+### Markets maritime context without internal HTTP
+
+`/api/markets` reads a small process-local chokepoint projection published by
+completed `/api/maritime` responses; it no longer requests that endpoint or starts
+vessel ingestion. `scm_snapshot` reports `cached`, `stale` (older than two minutes),
+or `unavailable`, with the original response time. Stale/missing snapshots produce
+no SCM alerts, which does not mean maritime risk is absent. A normal maritime
+request refreshes this context; another instance or a restarted server may lack it.
+The timestamp describes calculation time, not the age of every vessel position.
+Existing chokepoint heuristics and price collection remain unchanged.
