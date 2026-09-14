@@ -1,3 +1,4 @@
+import { identityConflictReport } from './identity-conflict-report';
 import { eventStoreStatus } from './event-store-status';
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -127,6 +128,27 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(redacted.collector).toMatchObject({ category: 'unclassified', level: 'error', skipped_candidates: null });
     expect(JSON.stringify(redacted)).not.toContain(privateError);
     expect((await pool.query('SELECT last_error FROM osiris_events.collector')).rows[0].last_error).toBe(privateError);
+  });
+
+  it('reconstructs a bridge between persisted events without changing history', async () => {
+    const first = write();
+    first.identities = collectorIdentities(first.event);
+    const second = write({ evidence: [{ ...first.event.evidence[0], url: 'https://example.org/quake/2' }] });
+    second.identities = collectorIdentities(second.event);
+    const committed = await store.commitBatch(randomUUID(), [first, second]);
+    const before = await new DurableEventReader(pool).bootstrap();
+    const signal = { ...first.event, evidence: [...first.event.evidence, ...second.event.evidence] };
+    await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', ['diagnostic', JSON.stringify(signal)]);
+    const report = await identityConflictReport(pool);
+    expect(report.signal_count).toBe(1);
+    expect(report.candidate_count).toBe(1);
+    expect(report.skipped_candidates).toBe(1);
+    expect(report.conflicts[0].reason).toBe('multiple_stored_events');
+    expect(report.conflicts[0].links.flatMap(link => link.events.map(e => e.id)).sort())
+      .toEqual(committed.events.map(e => e.id).sort());
+    expect(report.cursor).toBe('2');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.signals')).rows[0].count).toBe('1');
   });
 
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {

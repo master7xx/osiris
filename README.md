@@ -776,3 +776,23 @@ guarantee of accuracy. Reusing a group response does not renew its receipt time.
 `tle_format_limited: true` explicitly identifies the current legacy-format limit:
 TLE cannot cover new six-digit NORAD numbers. OMM/JSON ingestion is not yet
 implemented; a healthy group response does not establish catalog completeness.
+
+### Read-only identity conflict report
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-conflict-report.ts
+```
+
+Reconstructs fusion from the retained 48-hour signal window, then applies the
+collector's ordered identity skip rules against a read-only database snapshot.
+`multiple_stored_events` means one candidate links to several persisted events;
+`repeated_stored_event` identifies a later candidate targeting an already accepted
+event, with `earlier_accepted_position` referencing the zero-based candidate order.
+Links include source IDs, SHA-256 identity fingerprints, stored event UUIDs and
+revisions. Raw upstream IDs/URLs, titles and event payloads are omitted. Hashes
+are correlation keys, not anonymization. No upstream requests, migrations, writes,
+merges or cleanup occur. This is a reconstruction, not the previous cycle's trace:
+new signals, fusion time and row ordering can change its results. An empty report
+does not prove historical conflicts have been resolved. The command refuses more
+than 10,000 signals or 100,000 distinct identities rather than silently truncating
+the analysis; SQL statements have 10-second and lock waits 2-second limits.
