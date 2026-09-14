@@ -1,3 +1,4 @@
+import { getGlobalCctvCoverage } from '@/lib/cctv-coverage';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 60;
@@ -9,10 +10,9 @@ export async function GET(req: Request) {
     const origin = new URL(req.url).origin;
 
     // Fetch all internal APIs in parallel (they have their own Cache-Control TTLs)
-    const [flightsRes, satsRes, cctvRes, weatherRes, infraRes, gdeltRes] = await Promise.allSettled([
+    const [flightsRes, satsRes, weatherRes, infraRes, gdeltRes] = await Promise.allSettled([
       fetch(`${origin}/api/flights`, { signal: AbortSignal.timeout(20000), cache: 'no-store' }),
       fetch(`${origin}/api/satellites`, { signal: AbortSignal.timeout(20000), cache: 'no-store' }),
-      fetch(`${origin}/api/cctv`, { signal: AbortSignal.timeout(20000), cache: 'no-store' }),
       fetch(`${origin}/api/weather`, { signal: AbortSignal.timeout(20000), next: { revalidate: 300 } }),
       fetch(`${origin}/api/infrastructure`, { signal: AbortSignal.timeout(20000), next: { revalidate: 86400 } }),
       fetch(`${origin}/api/gdelt`, { signal: AbortSignal.timeout(20000), next: { revalidate: 300 } })
@@ -20,7 +20,9 @@ export async function GET(req: Request) {
 
     let flights = 0;
     let sats = 0;
-    let cctv = 0;
+    // Read after other counters finish so an in-flight map load can populate it.
+    const coverage = getGlobalCctvCoverage();
+    const cctv = coverage?.total_cameras ?? null;
     let weather = 0;
     let nuclear = 0;
     let incidents = 0;
@@ -37,11 +39,6 @@ export async function GET(req: Request) {
     if (satsRes.status === 'fulfilled' && satsRes.value.ok) {
       const data = await satsRes.value.json();
       sats = data.satellites?.length || 0;
-    }
-
-    if (cctvRes.status === 'fulfilled' && cctvRes.value.ok) {
-      const data = await cctvRes.value.json();
-      cctv = data.cameras?.length || 0;
     }
 
     if (weatherRes.status === 'fulfilled' && weatherRes.value.ok) {
@@ -68,10 +65,15 @@ export async function GET(req: Request) {
         nuclear,
         incidents
       },
+      cctv_snapshot: {
+        state: coverage ? 'cached' : 'unavailable',
+        observed_at: coverage?.generated_at ?? null,
+        scope: 'global',
+      },
       timestamp: new Date().toISOString()
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+        'Cache-Control': 'no-store',
       }
     });
 

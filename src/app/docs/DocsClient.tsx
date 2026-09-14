@@ -358,7 +358,7 @@ print(len(data["commercial_flights"]), "commercial")`,
             />
             <p>
               If you only need magnitudes rather than geometry, <Code>/api/stats</Code> is the right endpoint to poll —
-              it collapses the heavy feeds into a handful of counters.
+              it aggregates counters. CCTV uses the last global camera snapshot from this server process; it never starts camera loading. Before that snapshot exists, cctv is null. Check cctv_snapshot.observed_at for its age.
             </p>
             <Pre label="Aggregate counters" lang="bash">{`curl -s ${origin}/api/stats
 # { "stats": { "flights": 9241, "sats": 2043, "cctv": 2117,
