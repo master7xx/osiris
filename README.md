@@ -713,3 +713,17 @@ no SCM alerts, which does not mean maritime risk is absent. A normal maritime
 request refreshes this context; another instance or a restarted server may lack it.
 The timestamp describes calculation time, not the age of every vessel position.
 Existing chokepoint heuristics and price collection remain unchanged.
+
+### CelesTrak group diagnostics
+
+Satellite responses expose `celestrak_health` for the last group refresh, with
+group name (or supplemental FILE), HTTP status when available, observation time,
+record count and errors. HTTP 200 without TLE records is an error. A disk-cache
+restore has no saved health observations until a refresh. `tle-new` was removed
+after the provider returned GROUP not found; the existing `last-30-days` request
+remains. An entirely failed refresh no longer renews the satellite cache timestamp.
+Partial refreshes still backfill old elements; group health is not per-object age.
+
+`tle_format_limited: true` explicitly identifies the current legacy-format limit:
+TLE cannot cover new six-digit NORAD numbers. OMM/JSON ingestion is not yet
+implemented; a healthy group response does not establish catalog completeness.
