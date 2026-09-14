@@ -1,4 +1,4 @@
-import { CELESTRAK_GROUPS, fetchCelesTrakGroup, type GroupHealth } from '@/lib/celestrak-groups';
+import { CELESTRAK_GROUPS, CELESTRAK_REFRESH_MS, loadCelesTrakGroup, type GroupHealth } from '@/lib/celestrak-groups';
 
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
@@ -88,7 +88,7 @@ const CACHE_FILE = join(CACHE_DIR, 'satellites-tle-cache.json');
 function saveToDisk(sats: any[]) {
   try {
     if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
-    writeFileSync(CACHE_FILE, JSON.stringify({ time: Date.now(), sats }));
+    writeFileSync(CACHE_FILE, JSON.stringify({ time: globalCacheTime, sats }));
   } catch { /* non-critical */ }
 }
 
@@ -122,16 +122,16 @@ export async function GET() {
     let allSats: any[] = globalCachedSats;
     let source = 'memory-cache';
 
-    if (globalCachedSats.length === 0 || globalCachedSats.length < 5000 || nowTime - globalCacheTime > 3600000) { // refresh if empty, too few, or stale
+    if (globalCachedSats.length === 0 || globalCachedSats.length < 5000 || nowTime - globalCacheTime > CELESTRAK_REFRESH_MS) { // refresh if empty, too few, or stale
       
       // Primary: Fetch multiple CelesTrak groups in parallel
       const groupResults = await Promise.allSettled(
-        CELESTRAK_GROUPS.map(url => fetchCelesTrakGroup(url))
+        CELESTRAK_GROUPS.map(url => loadCelesTrakGroup(url))
       );
       
       lastGroupHealth = groupResults.flatMap(result => result.status === 'fulfilled' ? [result.value.health] : []);
       const seen = new Set<string>();
-      const merged: { name: string; line1: string; line2: string }[] = [];
+      const merged: { name: string; line1: string; line2: string; received_at?: string }[] = [];
       
       // 1. Add all newly fetched satellites
       for (const result of groupResults) {
@@ -140,7 +140,7 @@ export async function GET() {
             const noradId = sat.line1.substring(2, 7).trim();
             if (!seen.has(noradId)) {
               seen.add(noradId);
-              merged.push(sat);
+              merged.push({ ...sat, received_at: result.value.health.observed_at });
             }
           }
         }
@@ -159,7 +159,7 @@ export async function GET() {
       
       if (merged.length > 500 && merged.length > backfilled) {
         globalCachedSats = merged;
-        globalCacheTime = nowTime;
+        globalCacheTime = Math.max(...lastGroupHealth.filter(h => h.state === 'ok').map(h => Date.parse(h.observed_at)));
         allSats = merged;
         source = `celestrak (${merged.length} TLEs: ${merged.length - backfilled} new, ${backfilled} cached)`;
         saveToDisk(merged);
@@ -188,6 +188,7 @@ export async function GET() {
                   name: cleanName,
                   line1: item.tle1.trim(),
                   line2: item.tle2.trim(),
+                  received_at: new Date().toISOString(),
                 });
               }
             }
@@ -244,6 +245,7 @@ export async function GET() {
         color: classification.color,
         category,
         noradId: sat.line1.substring(2, 7).trim(),
+        tle_received_at: sat.received_at ?? null,
       });
     }
 
