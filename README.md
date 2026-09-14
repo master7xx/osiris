@@ -713,3 +713,33 @@ no SCM alerts, which does not mean maritime risk is absent. A normal maritime
 request refreshes this context; another instance or a restarted server may lack it.
 The timestamp describes calculation time, not the age of every vessel position.
 Existing chokepoint heuristics and price collection remain unchanged.
+
+### CelesTrak group diagnostics
+
+Satellite responses expose `celestrak_health` for the last group refresh, with
+group name (or supplemental FILE), HTTP status when available, observation time,
+record count and errors. HTTP 200 without TLE records is an error. A disk-cache
+restore has no saved health observations until a refresh. GLONASS uses the
+provider's `glo-ops` group. Invalid `tle-new` and `GROUP=supplemental` queries are
+not requested; SupGP Starlink keeps its separate `FILE=starlink` endpoint.
+`last-30-days` is omitted from TLE ingestion: its current six-digit catalog
+entries require modern GP formats. This is a coverage limitation, not a claim
+that the group itself does not exist.
+
+Within one server module lifetime, concurrent requests share pending group loads
+and reuse results for two hours. Transport failures also wait two hours. HTTP
+errors and unusable HTTP 200 payloads suspend that group's automatic retries
+(`retry_suspended: true`) until server restart after operator investigation.
+Restart resets this in-memory protection; it is not a way to bypass provider
+limits. Multiple server processes do not share the gate. See the
+[CelesTrak usage policy](https://celestrak.org/usage-policy.php).
+
+An entirely failed refresh does not renew the satellite cache timestamp. Partial
+refreshes backfill old elements. Each satellite exposes `tle_received_at`, the
+receipt time of its own data, preserved during backfill; legacy disk records and
+the emergency fallback return null. Receipt time is not the orbital epoch or a
+guarantee of accuracy. Reusing a group response does not renew its receipt time.
+
+`tle_format_limited: true` explicitly identifies the current legacy-format limit:
+TLE cannot cover new six-digit NORAD numbers. OMM/JSON ingestion is not yet
+implemented; a healthy group response does not establish catalog completeness.

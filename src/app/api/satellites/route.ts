@@ -1,3 +1,4 @@
+import { CELESTRAK_GROUPS, CELESTRAK_REFRESH_MS, loadCelesTrakGroup, type GroupHealth } from '@/lib/celestrak-groups';
 
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
@@ -74,43 +75,6 @@ function propagateSGP4Simple(line1: string, line2: string): { lat: number; lng: 
   };
 }
 
-// CelesTrak constellation groups — many smaller groups to avoid 403 rate limits
-const CT = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=';
-const FMT = '&FORMAT=tle';
-const CELESTRAK_GROUPS = [
-  // Full catalogs
-  `${CT}active${FMT}`, 
-  // Use supplemental feed for Starlink to avoid strict rate limits on the primary group
-  `https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=tle`,
-  // Navigation (GPS, GLONASS, Galileo, BeiDou)
-  `${CT}gps-ops${FMT}`, `${CT}glonass-operational${FMT}`, `${CT}galileo${FMT}`, `${CT}beidou${FMT}`,
-  // Communications
-  `${CT}oneweb${FMT}`, `${CT}iridium-NEXT${FMT}`, `${CT}globalstar${FMT}`, `${CT}orbcomm${FMT}`,
-  `${CT}intelsat${FMT}`, `${CT}ses${FMT}`, `${CT}other-comm${FMT}`, `${CT}x-comm${FMT}`,
-  // Stations & Science
-  `${CT}stations${FMT}`, `${CT}education${FMT}`, `${CT}engineering${FMT}`, `${CT}science${FMT}`,
-  // Weather & Earth observation
-  `${CT}weather${FMT}`, `${CT}resource${FMT}`, `${CT}sarsat${FMT}`, `${CT}planet${FMT}`,
-  `${CT}goes${FMT}`, `${CT}argos${FMT}`, `${CT}dmc${FMT}`, `${CT}spire${FMT}`,
-  // Military / Government
-  `${CT}military${FMT}`, `${CT}radar${FMT}`, `${CT}geodetic${FMT}`, `${CT}tdrss${FMT}`,
-  // GEO belt
-  `${CT}geo${FMT}`,
-  // Small sats & cubesats
-  `${CT}cubesat${FMT}`, `${CT}tle-new${FMT}`, `${CT}amateur${FMT}`,
-  // Recently launched (catches new Starlinks)
-  `${CT}last-30-days${FMT}`,
-  // Visual / high-interest
-  `${CT}visual${FMT}`,
-  // Supplemental
-  `${CT}supplemental${FMT}`,
-  // Debris fields (thousands of tracked objects)
-  `${CT}fengyun-1c-debris${FMT}`, `${CT}cosmos-2251-debris${FMT}`,
-  `${CT}iridium-33-debris${FMT}`, `${CT}cosmos-1408-debris${FMT}`,
-  // Other NOAA
-  `${CT}nnss${FMT}`, `${CT}musson${FMT}`,
-];
-
 // SatNOGS Open API - Fallback source
 const SATNOGS_API = 'https://db.satnogs.org/api/tle/?format=json';
 
@@ -124,7 +88,7 @@ const CACHE_FILE = join(CACHE_DIR, 'satellites-tle-cache.json');
 function saveToDisk(sats: any[]) {
   try {
     if (!existsSync(CACHE_DIR)) mkdirSync(CACHE_DIR, { recursive: true });
-    writeFileSync(CACHE_FILE, JSON.stringify({ time: Date.now(), sats }));
+    writeFileSync(CACHE_FILE, JSON.stringify({ time: globalCacheTime, sats }));
   } catch { /* non-critical */ }
 }
 
@@ -143,6 +107,7 @@ function loadFromDisk(): { sats: any[]; time: number } | null {
 
 let globalCachedSats: any[] = [];
 let globalCacheTime = 0;
+let lastGroupHealth: GroupHealth[] = [];
 
 // On module load, try to restore from disk immediately
 const diskCache = loadFromDisk();
@@ -151,67 +116,31 @@ if (diskCache && diskCache.sats.length > 0) {
   globalCacheTime = diskCache.time;
 }
 
-/** Parse raw 3-line TLE text into satellite objects */
-function parseTLEText(text: string): { name: string; line1: string; line2: string }[] {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  const sats: { name: string; line1: string; line2: string }[] = [];
-  let i = 0;
-  while (i < lines.length - 1) {
-    if (!lines[i].startsWith('1') && lines[i + 1]?.startsWith('1') && lines[i + 2]?.startsWith('2')) {
-      sats.push({ name: lines[i].replace(/^0\s+/, '').trim(), line1: lines[i + 1], line2: lines[i + 2] });
-      i += 3;
-    } else if (lines[i].startsWith('1') && lines[i + 1]?.startsWith('2')) {
-      const noradId = lines[i].substring(2, 7).trim();
-      sats.push({ name: `SAT-${noradId}`, line1: lines[i], line2: lines[i + 1] });
-      i += 2;
-    } else {
-      i++;
-    }
-  }
-  return sats;
-}
-
-async function fetchCelesTrakGroup(url: string): Promise<{ name: string; line1: string; line2: string }[]> {
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(30000),
-      cache: 'no-store',
-      headers: { 'User-Agent': 'OSIRIS/4.2 (satellite-tracker)' },
-    });
-    if (!res.ok) return [];
-    const text = await res.text();
-    // CelesTrak returns an error message (not TLE) if rate-limited
-    if (text.includes('has not updated since') || text.length < 100) return [];
-    return parseTLEText(text);
-  } catch {
-    return [];
-  }
-}
-
 export async function GET() {
   try {
     const nowTime = Date.now();
     let allSats: any[] = globalCachedSats;
     let source = 'memory-cache';
 
-    if (globalCachedSats.length === 0 || globalCachedSats.length < 5000 || nowTime - globalCacheTime > 3600000) { // refresh if empty, too few, or stale
+    if (globalCachedSats.length === 0 || globalCachedSats.length < 5000 || nowTime - globalCacheTime > CELESTRAK_REFRESH_MS) { // refresh if empty, too few, or stale
       
       // Primary: Fetch multiple CelesTrak groups in parallel
       const groupResults = await Promise.allSettled(
-        CELESTRAK_GROUPS.map(url => fetchCelesTrakGroup(url))
+        CELESTRAK_GROUPS.map(url => loadCelesTrakGroup(url))
       );
       
+      lastGroupHealth = groupResults.flatMap(result => result.status === 'fulfilled' ? [result.value.health] : []);
       const seen = new Set<string>();
-      const merged: { name: string; line1: string; line2: string }[] = [];
+      const merged: { name: string; line1: string; line2: string; received_at?: string }[] = [];
       
       // 1. Add all newly fetched satellites
       for (const result of groupResults) {
         if (result.status === 'fulfilled') {
-          for (const sat of result.value) {
+          for (const sat of result.value.satellites) {
             const noradId = sat.line1.substring(2, 7).trim();
             if (!seen.has(noradId)) {
               seen.add(noradId);
-              merged.push(sat);
+              merged.push({ ...sat, received_at: result.value.health.observed_at });
             }
           }
         }
@@ -228,9 +157,9 @@ export async function GET() {
         }
       }
       
-      if (merged.length > 500) {
+      if (merged.length > 500 && merged.length > backfilled) {
         globalCachedSats = merged;
-        globalCacheTime = nowTime;
+        globalCacheTime = Math.max(...lastGroupHealth.filter(h => h.state === 'ok').map(h => Date.parse(h.observed_at)));
         allSats = merged;
         source = `celestrak (${merged.length} TLEs: ${merged.length - backfilled} new, ${backfilled} cached)`;
         saveToDisk(merged);
@@ -259,6 +188,7 @@ export async function GET() {
                   name: cleanName,
                   line1: item.tle1.trim(),
                   line2: item.tle2.trim(),
+                  received_at: new Date().toISOString(),
                 });
               }
             }
@@ -315,6 +245,7 @@ export async function GET() {
         color: classification.color,
         category,
         noradId: sat.line1.substring(2, 7).trim(),
+        tle_received_at: sat.received_at ?? null,
       });
     }
 
@@ -334,6 +265,8 @@ export async function GET() {
       category_counts: categoryCounts,
       source,
       raw_count: allSats.length,
+      celestrak_health: lastGroupHealth,
+      tle_format_limited: true,
       timestamp: new Date().toISOString(),
     }, {
       headers: {
