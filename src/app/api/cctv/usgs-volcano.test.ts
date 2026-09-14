@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapUsgsAshcam, type UsgsAshcamRow } from './usgs-volcano';
+import { mapUsgsAshcam, ashcamRows, type UsgsAshcamRow } from './usgs-volcano';
 
 const volcanoCamera: UsgsAshcamRow = {
   webcamCode: 'hood-palmer',
@@ -52,4 +52,12 @@ describe('mapUsgsAshcam', () => {
     expect(camera).not.toBeNull();
     expect(camera?.external_url).toBeUndefined();
   });
+});
+
+it('reads the observed USGS webcams envelope and the legacy array', () => {
+  expect(ashcamRows({ webcams: [volcanoCamera] })).toEqual([volcanoCamera]);
+  expect(ashcamRows([volcanoCamera])).toEqual([volcanoCamera]);
+  expect(ashcamRows({ webcams: [] })).toEqual([]);
+  expect(() => ashcamRows({ error: 'unavailable' })).toThrow('webcams array');
+  expect(() => ashcamRows({ webcams: [null] })).toThrow('invalid camera row');
 });

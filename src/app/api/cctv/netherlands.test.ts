@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { clearSourceCache } from '@/lib/sourceCache';
+import { describe, it, expect, vi } from 'vitest';
 import { parseRwsCameras, fetchNetherlandsCameras } from './netherlands';
 
 /** One record in the shape Rijkswaterstaat actually serves. */
@@ -83,4 +84,17 @@ describe('fetchNetherlandsCameras', () => {
       expect(c.feed_url).toMatch(/^\/api\/cctv\/proxy\?url=/);
     }
   }, 60_000);
+});
+
+it('shares concurrent RWS loads and reuses the resulting source index', async () => {
+  clearSourceCache();
+  const fetcher = vi.fn(async () => Response.json([AMERSFOORT]));
+  vi.stubGlobal('fetch', fetcher);
+  try {
+    const results = await Promise.all([fetchNetherlandsCameras(), fetchNetherlandsCameras()]);
+    expect(results[0]).toHaveLength(1);
+    expect(results[1]).toEqual(results[0]);
+    expect(await fetchNetherlandsCameras()).toEqual(results[0]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally { vi.unstubAllGlobals(); clearSourceCache(); }
 });

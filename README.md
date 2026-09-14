@@ -666,3 +666,23 @@ response retains the existing HTTP cache policy. Camera source caching remains
 independent. Failed camera fetches wait 60 seconds after failure before retrying,
 even when no previous camera index exists; an existing index is preserved.
 Upstream timeouts and invalid provider payloads still report source errors.
+
+### Request middleware and Netherlands camera collection
+
+Request correlation and optional Umami forwarding retain `src/middleware.ts`.
+The proxy migration is deferred after API 404s during target-host development
+verification; the deprecation warning remains until that migration is validated.
+Netherlands camera loads from Europe enrichment and direct regional requests
+share the RWS source cache and in-flight request within a server module instance.
+This does not deduplicate across separate processes or guarantee a single log
+line across development reloads.
+
+The USGS Ashcam adapter accepts its observed `{ "webcams": [...] }` response
+envelope as well as the legacy array. Unexpected envelopes remain source errors.
+This fixes catalog parsing, not the availability or freshness of individual images.
+
+Windows CI checks `/api/health` and `/api/events/sync` for successful JSON
+responses in both development and production modes. After changing between
+proxy and middleware branches, stop the dev session and remove only the generated
+`.next` directory before restarting. This does not remove environment files,
+PostgreSQL records or browser caches.

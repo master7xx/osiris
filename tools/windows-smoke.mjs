@@ -1,10 +1,11 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const port = 3107;
+const dev = process.argv.includes('--dev');
+const port = dev ? 3108 : 3107;
 const child = spawn(
   process.execPath,
-  ['node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)],
+  ['node_modules/next/dist/bin/next', dev ? 'dev' : 'start', '-H', '127.0.0.1', '-p', String(port)],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: String(port), OSIRIS_DEBUG: '1' },
@@ -17,7 +18,10 @@ child.stdout.on('data', chunk => { output += chunk.toString(); });
 child.stderr.on('data', chunk => { output += chunk.toString(); });
 
 async function stop() {
-  if (!child.killed) child.kill();
+  if (child.exitCode !== null) return;
+  if (process.platform === 'win32' && child.pid) {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+  } else if (!child.killed) child.kill();
   await Promise.race([
     new Promise(resolve => child.once('exit', resolve)),
     sleep(3000),
@@ -26,7 +30,7 @@ async function stop() {
 
 try {
   let lastError;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < (dev ? 100 : 40); attempt += 1) {
     if (child.exitCode !== null) throw new Error(`Next.js exited early with code ${child.exitCode}\n${output}`);
     try {
       const response = await fetch(`http://127.0.0.1:${port}/api/health`, {
@@ -34,7 +38,14 @@ try {
         cache: 'no-store',
       });
       if (response.ok) {
-        console.log(`[OK] Windows native runtime smoke test: /api/health -> ${response.status}`);
+        if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Health returned non-JSON');
+        const health = await response.json();
+        if (health.status !== 'operational') throw new Error('Unexpected health payload');
+        const sync = await fetch(`http://127.0.0.1:${port}/api/events/sync`, { signal: AbortSignal.timeout(10000), cache: 'no-store' });
+        if (!sync.ok || !sync.headers.get('content-type')?.includes('application/json')) throw new Error(`Sync returned ${sync.status} or non-JSON`);
+        const state = await sync.json();
+        if (state.version !== 1 || !['snapshot', 'durable'].includes(state.mode)) throw new Error('Unexpected sync payload');
+        console.log(`[OK] Windows ${dev ? 'development' : 'production'} routing: health and sync return JSON`);
         process.exitCode = 0;
         break;
       }
