@@ -732,6 +732,21 @@ boundaries and catalog estimates instead of full history counts. No collection,
 backup, deletion, VACUUM or migration runs. Two reports taken at different times
 can show allocated growth; one report does not predict a growth rate.
 
+Collector diagnostics also include `category`, `level` and `skipped_candidates`.
+The legacy `has_error` flag still means a stored non-null message, including a
+warning after a successful cycle. `identity_reconciliation` with `level: warning`
+identifies a completed cycle that skipped candidates; its count is a decimal
+string, not the number of lost events. Failed reconciliation has `level: error`
+and an unknown count (`null`). Other recognized categories are
+`revision_conflict`, `sources_unavailable` and `collector_ownership`.
+Unrecognized errors are `unclassified`; raw messages, source payloads and
+connection details are never returned. A null saved message yields `category`
+and `level` of `none`, which does not establish source completeness or liveness.
+These fields describe the last stored message, not a new health probe; lease
+inactivity can be normal between cycles. No migration or collector restart is
+needed for this report enhancement. Existing stored messages are classified
+without being rewritten, so older collectors are supported.
+
 ### CelesTrak group diagnostics
 
 Satellite responses expose `celestrak_health` for the last group refresh, with

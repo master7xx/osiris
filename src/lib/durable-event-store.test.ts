@@ -113,6 +113,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('1');
   });
 
+  it('reports collector warnings and redacts unknown stored errors without modifying them', async () => {
+    await pool.query(`INSERT INTO osiris_events.collector (owner,generation,expires_at,last_error)
+      VALUES ($1,1,clock_timestamp(),$2)`, [randomUUID(), '12 candidates skipped: identity reconciliation required']);
+    const before = (await pool.query('SELECT * FROM osiris_events.collector')).rows;
+    const report = await eventStoreStatus(pool);
+    expect(report.collector).toMatchObject({ has_error: true, category: 'identity_reconciliation', level: 'warning', skipped_candidates: '12' });
+    expect(report.collector).not.toHaveProperty('last_error');
+    expect((await pool.query('SELECT * FROM osiris_events.collector')).rows).toEqual(before);
+    const privateError = 'postgres://private-user:private-password@private-host/db';
+    await pool.query('UPDATE osiris_events.collector SET last_error=$1', [privateError]);
+    const redacted = await eventStoreStatus(pool);
+    expect(redacted.collector).toMatchObject({ category: 'unclassified', level: 'error', skipped_candidates: null });
+    expect(JSON.stringify(redacted)).not.toContain(privateError);
+    expect((await pool.query('SELECT last_error FROM osiris_events.collector')).rows[0].last_error).toBe(privateError);
+  });
+
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
     const bulletin = (serial: string, description = 'Original') => event({
       id: `swpc-${serial}`, description,
