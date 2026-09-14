@@ -1,3 +1,4 @@
+import { eventStoreStatus } from './event-store-status';
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
@@ -97,6 +98,20 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
       expect((await pool.query('SELECT cursor FROM osiris_events.metadata')).rows[0].cursor).toBe('3');
     } finally { await restartedPool?.end(); }
   }, 30000);
+
+  it('reports storage without changing replay metadata or event history', async () => {
+    await store.commitBatch(randomUUID(), [write()]);
+    const before = await new DurableEventReader(pool).bootstrap();
+    const report = await eventStoreStatus(pool);
+    expect(report.metadata.cursor).toBe('1');
+    expect(report.first_revision.cursor).toBe('1');
+    expect(report.last_revision.cursor).toBe('1');
+    expect(report.tables.map(row => row.name)).toContain('batches');
+    expect(BigInt(report.total_bytes)).toBeGreaterThan(BigInt(0));
+    expect(report.collector).toBeNull();
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('1');
+  });
 
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
     const bulletin = (serial: string, description = 'Original') => event({

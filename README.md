@@ -714,6 +714,24 @@ request refreshes this context; another instance or a restarted server may lack 
 The timestamp describes calculation time, not the age of every vessel position.
 Existing chokepoint heuristics and price collection remain unchanged.
 
+### Read-only event-store size report
+
+Run on the server with the existing database configuration:
+
+```powershell
+node --env-file=.env.local --import tsx tools/event-store-status.ts
+```
+
+The JSON report includes per-table allocated bytes (including indexes/TOAST),
+planner row estimates, estimated dead rows, replay boundaries and collector status.
+Counts can be stale or unavailable until PostgreSQL analyzes tables. Sizes can
+change during ingestion and do not indicate how much disk cleanup would reclaim.
+Numeric sizes/cursors are strings to avoid JavaScript integer precision loss.
+It uses a read-only transaction, statement/lock timeouts, indexed revision
+boundaries and catalog estimates instead of full history counts. No collection,
+backup, deletion, VACUUM or migration runs. Two reports taken at different times
+can show allocated growth; one report does not predict a growth rate.
+
 ### CelesTrak group diagnostics
 
 Satellite responses expose `celestrak_health` for the last group refresh, with
