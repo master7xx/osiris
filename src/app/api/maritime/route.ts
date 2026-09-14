@@ -1,3 +1,4 @@
+import { noteMaritimeRisk } from '@/lib/maritime-risk-snapshot';
 import { NextResponse } from 'next/server';
 import WebSocket from 'ws';
 
@@ -290,6 +291,7 @@ export async function GET() {
     };
   });
 
+  noteMaritimeRisk(dynamicChokepoints);
   return NextResponse.json({
     ports: dynamicPorts,
     chokepoints: dynamicChokepoints,

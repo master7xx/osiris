@@ -1,3 +1,4 @@
+import { readMaritimeRisk } from '@/lib/maritime-risk-snapshot';
 
 import { NextResponse } from 'next/server';
 import { cachedSource } from '@/lib/sourceCache';
@@ -187,27 +188,19 @@ export async function fetchAllQuotes(): Promise<Quote[]> {
 const getQuotes = cachedSource<Quote>('markets', fetchAllQuotes, 60_000);
 
 /** Chokepoint risk that has a direct read-through to the instruments above. */
-async function fetchScmAlerts(origin: string): Promise<string[]> {
+function scmAlerts(chokepoints: { name: string; risk: string }[]): string[] {
   const alerts: string[] = [];
-  try {
-    const res = await fetch(`${origin}/api/maritime`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return alerts;
-    const chokepoints = (await res.json())?.chokepoints || [];
+  const atRisk = (name: string) => {
+    const c = chokepoints.find((x: { name?: string; risk?: string }) => x.name === name);
+    return c && (c.risk === 'CRITICAL' || c.risk === 'HIGH') ? c.risk : null;
+  };
 
-    const atRisk = (name: string) => {
-      const c = chokepoints.find((x: { name?: string; risk?: string }) => x.name === name);
-      return c && (c.risk === 'CRITICAL' || c.risk === 'HIGH') ? c.risk : null;
-    };
-
-    const hormuz = atRisk('Strait of Hormuz');
-    const suez = atRisk('Suez Canal');
-    const panama = atRisk('Panama Canal');
-    if (hormuz) alerts.push(`🚨 HORMUZ ${hormuz}: High risk of WTI/Brent Crude price spike due to congestion.`);
-    if (suez) alerts.push(`🚨 SUEZ ${suez}: Potential supply chain delays impacting European markets and Energy.`);
-    if (panama) alerts.push(`🚨 PANAMA ${panama}: LNG and Agriculture (Corn/Wheat) shipment delays expected.`);
-  } catch {
-    // Maritime unreachable — the market data still stands on its own.
-  }
+  const hormuz = atRisk('Strait of Hormuz');
+  const suez = atRisk('Suez Canal');
+  const panama = atRisk('Panama Canal');
+  if (hormuz) alerts.push(`🚨 HORMUZ ${hormuz}: High risk of WTI/Brent Crude price spike due to congestion.`);
+  if (suez) alerts.push(`🚨 SUEZ ${suez}: Potential supply chain delays impacting European markets and Energy.`);
+  if (panama) alerts.push(`🚨 PANAMA ${panama}: LNG and Agriculture (Corn/Wheat) shipment delays expected.`);
   return alerts;
 }
 
@@ -222,14 +215,16 @@ export function groupQuotes(quotes: Quote[]): Record<string, Record<string, Quot
   return out;
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const origin = new URL(request.url).origin;
-    const [quotes, scm_alerts] = await Promise.all([getQuotes(), fetchScmAlerts(origin)]);
+    const quotes = await getQuotes();
+    const { chokepoints, ...scm_snapshot } = readMaritimeRisk();
+    const scm_alerts = scmAlerts(chokepoints);
 
     return NextResponse.json({
       ...groupQuotes(quotes),
       scm_alerts,
+      scm_snapshot,
       count: quotes.length,
       timestamp: new Date().toISOString(),
     }, {
