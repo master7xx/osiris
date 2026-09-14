@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { collectorStatusReason } from './collector-status-reason';
 
 /** Read-only diagnostics. Catalog estimates deliberately avoid COUNT(*) scans. */
 export async function eventStoreStatus(pool: Pool) {
@@ -21,9 +22,15 @@ export async function eventStoreStatus(pool: Pool) {
       WHERE n.nspname='osiris_events' AND c.relkind='r' ORDER BY c.relname`)).rows;
     const first = (await client.query('SELECT cursor,committed_at FROM osiris_events.revisions ORDER BY cursor ASC LIMIT 1')).rows[0] ?? null;
     const last = (await client.query('SELECT cursor,committed_at FROM osiris_events.revisions ORDER BY cursor DESC LIMIT 1')).rows[0] ?? null;
-    const collector = (await client.query(`SELECT expires_at>clock_timestamp() AS lease_active,
-      last_success_at,last_error IS NOT NULL AS has_error
+    const collectorRow = (await client.query(`SELECT expires_at>clock_timestamp() AS lease_active,
+      last_success_at,last_error
       FROM osiris_events.collector WHERE singleton`)).rows[0] ?? null;
+    const collector = collectorRow ? {
+      lease_active: collectorRow.lease_active,
+      last_success_at: collectorRow.last_success_at,
+      has_error: collectorRow.last_error !== null,
+      ...collectorStatusReason(collectorRow.last_error),
+    } : null;
     const sampledAt = (await client.query('SELECT clock_timestamp() AS sampled_at')).rows[0].sampled_at;
     await client.query('COMMIT');
     return {
