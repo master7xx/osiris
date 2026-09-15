@@ -54,7 +54,13 @@ export function planIdentityReconciliation(signals: IncomingEvent[], stored: Sto
     if (new Set(links.map(l => l.revision)).size !== 1) blockers.add('inconsistent_revision');
     const members = [...partitions].sort(([a], [b]) => a.localeCompare(b)).map(([provider, identities]) => {
       const [source, provider_event_id] = JSON.parse(provider) as [string, string];
-      return { source, provider_event_id, identity_fingerprints: identities.sort(),
+      const observations = signals.filter(signal => {
+        const p = providerIdentity(signal);
+        return p?.source === source && p.id === provider_event_id;
+      }).map(signal => ({ title: signal.title, occurred_at: signal.occurred_at,
+        discovered_at: signal.discovered_at, lat: signal.lat ?? null, lng: signal.lng ?? null,
+        category: signal.category })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+      return { source, provider_event_id, observations, identity_fingerprints: identities.sort(),
         proposed_target: `new-event:${hash(provider)}` };
     });
     const split = !blockers.size && members.length > 1;

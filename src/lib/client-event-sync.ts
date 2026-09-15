@@ -19,6 +19,7 @@ interface StoredEvent { id: string; revision: string; cursor: string; payload: F
 interface Change { event_id: string; revision: string; cursor: string; payload: FusedEvent; committed_at: string }
 
 function checkEvent(event: FusedEvent) {
+  if (event?.replaced_by !== undefined && (!Array.isArray(event.replaced_by) || !event.replaced_by.length || !event.replaced_by.every(id => typeof id === 'string' && id.length > 0))) throw new Error('Invalid event replacement');
   if (event?.supersedes !== undefined && (!Array.isArray(event.supersedes) || !event.supersedes.every(url => typeof url === 'string'))) throw new Error('Invalid event lifecycle');
   if (event?.withdrawn !== undefined && typeof event.withdrawn !== 'boolean') throw new Error('Invalid event lifecycle');
   if (!event || typeof event.id !== 'string' || typeof event.title !== 'string' || !Array.isArray(event.evidence)
@@ -45,6 +46,7 @@ function record(row: StoredEvent): ContinuousEvent {
     update_count: Math.max(0, numeric(row.revision) - 1), change_sequence: numeric(row.cursor) };
 }
 function project(events: ContinuousEvent[], collector: Collector | null, fallback?: UnifiedEventFeed): UnifiedEventFeed {
+  events = events.filter(event => !event.replaced_by?.length);
   const generated = collector?.last_success_at ?? fallback?.generated_at;
   if (!generated || !Number.isFinite(Date.parse(generated))) throw new Error('Collector has not produced a snapshot');
   const health = collector?.source_health ?? fallback?.source_health ?? [];

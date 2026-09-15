@@ -834,8 +834,36 @@ identity; source semantics and historical payloads still require review.
 Partitions expose public provider event IDs and hashed identity keys. Proposed
 moves use stable `new-event:` symbolic references, not allocated UUIDs. The
 original event/history would need preservation with explicit supersession; no
-executor, SQL mutations or client replay changes are implemented. The plan
+apply CLI is exposed by this report. The plan
 includes snapshot epoch/cursor and expected event revisions for future validation,
 but it must never be applied against a changed snapshot. At most 100,000 stored
 identity links are inspected; exceeding the bound fails rather than truncates.
 No migrations, collection, camera changes, retention or cleanup run.
+
+### Reviewed split implementation (not enabled for production use)
+
+The dry-run now includes source titles, times and coordinates for each partition,
+and the current parent plus up to three latest historical revision summaries.
+This is a limited review aid, not a complete historical audit. `payload_hash`
+identifies the current parent payload, including changes that do not bump revision.
+
+`applyReviewedSplit` is an internal, unconnected primitive: no API, collector or
+CLI invokes it. It accepts explicitly reviewed child payloads/identity partitions
+and an exact document checksum. A checksum is not authorization or proof that
+source matching is correct. Dry-run proposals are not accepted as executable input.
+No production records have been split by this work.
+
+The primitive locks replay metadata and requires the reviewed epoch, cursor,
+parent revision/payload hash, complete disjoint identity coverage and no active
+collector lease. It creates children, moves identities, appends the parent's
+`replaced_by` revision, and commits the cursor and operation receipt together.
+Failures roll back all writes. Identical operation IDs/documents return the prior
+result; changed reuse is rejected. Original evidence and all historical revisions
+remain. Current durable feeds hide `replaced_by` parents; raw storage/replay still
+contains them. Browser synchronization publishes all pages as one checkpoint and
+also hides replaced parents during bootstrap. Camera behavior is unchanged.
+
+Before enabling application: review source semantics and full relevant history,
+construct reviewed child payloads, stop the collector, verify a fresh snapshot,
+and validate the apply workflow in PostgreSQL CI. There is no apply command yet;
+keep using `tools/identity-reconciliation-plan.ts` for read-only inspection.

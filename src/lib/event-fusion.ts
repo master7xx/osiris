@@ -47,6 +47,8 @@ export interface IncomingEvent {
   tags?: string[];
   supersedes?: string[];
   withdrawn?: boolean;
+  /** Historical record replaced by durable child UUIDs. */
+  replaced_by?: string[];
   source_count_hint?: number;
   independent_sources_hint?: number;
   evidence_weight_hint?: number;
@@ -78,6 +80,8 @@ export interface FusedEvent {
   tags: string[];
   supersedes?: string[];
   withdrawn?: boolean;
+  /** Historical record replaced by durable child UUIDs. */
+  replaced_by?: string[];
   age_minutes: number;
 }
 

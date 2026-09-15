@@ -1,3 +1,4 @@
+import { applyReviewedSplit, splitReviewHash, splitPayloadHash, type ReviewedSplit } from './reviewed-event-split';
 import { identityConflictReport } from './identity-conflict-report';
 import { eventStoreStatus } from './event-store-status';
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
@@ -170,6 +171,66 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(blocked.reconciliation?.groups[0].proposed_changes).toBeNull();
     expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('3');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+  });
+
+  async function splitFixture() {
+    const a = write();
+    a.identities = collectorIdentities(a.event);
+    const b = write({ title: 'Separate earthquake', evidence: [{ ...a.event.evidence[0], url: 'https://example.org/quake/2' }] });
+    b.identities = collectorIdentities(b.event);
+    const parentEvent = { ...a.event, evidence: [...a.event.evidence, ...b.event.evidence] };
+    const result = await store.commitBatch(randomUUID(), [{ event: parentEvent, identities: [...a.identities, ...b.identities], expectedRevision: null }]);
+    const parent = (await pool.query('SELECT payload FROM osiris_events.events WHERE id=$1', [result.events[0].id])).rows[0];
+    const plan: ReviewedSplit = { operation_id: randomUUID(), epoch: result.epoch, cursor: result.cursor,
+      parent_id: result.events[0].id, parent_revision: '1', parent_payload_hash: splitPayloadHash(parent.payload),
+      children: [a,b].map(w => ({ event: w.event, identities: w.identities, observed_at: '2026-09-12T08:00:00Z' })) };
+    return plan;
+  }
+  it('atomically splits reviewed identities, retains history and replays replacement idempotently', async () => {
+    const plan = await splitFixture();
+    const reader = new DurableEventReader(pool);
+    const before = await reader.bootstrap();
+    const result = await applyReviewedSplit(pool, plan, splitReviewHash(plan));
+    expect(result.child_ids).toHaveLength(2);
+    expect(result.cursor).toBe('4');
+    expect(await applyReviewedSplit(pool, plan, splitReviewHash(plan))).toEqual(result);
+    const after = await reader.bootstrap();
+    expect(after.events).toHaveLength(3);
+    expect(after.events.find(e => e.id === plan.parent_id).payload.replaced_by).toEqual(result.child_ids);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('4');
+    expect((await pool.query('SELECT count(*) FROM osiris_events.evidence WHERE event_id=$1', [plan.parent_id])).rows[0].count).toBe('2');
+    const changed = await reader.changes(before.cursor);
+    expect(changed.changes).toHaveLength(3);
+    expect(changed.changes[2].payload.replaced_by).toEqual(result.child_ids);
+    expect((await pool.query('SELECT DISTINCT event_id FROM osiris_events.identities')).rows.map(r => r.event_id).sort()).toEqual([...result.child_ids].sort());
+    const changedPlan = { ...plan, parent_revision: '2' };
+    await expect(applyReviewedSplit(pool, changedPlan, splitReviewHash(changedPlan))).rejects.toThrow('reused');
+  });
+  it('rejects changed approval, snapshot, parent payload, identities and active collector', async () => {
+    const plan = await splitFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    await expect(applyReviewedSplit(pool, plan, 'wrong')).rejects.toThrow('review changed');
+    for (const altered of [{ ...plan, cursor: '0' }, { ...plan, parent_payload_hash: 'changed' },
+      { ...plan, children: [plan.children[0], { ...plan.children[1], identities: plan.children[0].identities }] }]) {
+      await expect(applyReviewedSplit(pool, altered, splitReviewHash(altered))).rejects.toThrow();
+    }
+    const lease = await acquireCollectorLease(pool, randomUUID());
+    await expect(applyReviewedSplit(pool, plan, splitReviewHash(plan))).rejects.toThrow('Stop collector');
+    await releaseCollectorLease(pool, lease!);
+    expect((await new DurableEventReader(pool).bootstrap()).events).toEqual(before.events);
+    expect((await new DurableEventReader(pool).bootstrap()).cursor).toEqual(before.cursor);
+  });
+  it('rolls back children, identities and replay cursor when a later child insert fails', async () => {
+    const plan = await splitFixture();
+    plan.children[1].event.title = 'reject split test';
+    const before = await new DurableEventReader(pool).bootstrap();
+    await pool.query(`ALTER TABLE osiris_events.events ADD CONSTRAINT reject_split_test CHECK (payload->>'title' <> 'reject split test')`);
+    try {
+      await expect(applyReviewedSplit(pool, plan, splitReviewHash(plan))).rejects.toThrow();
+      expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+      expect((await pool.query('SELECT count(*) FROM osiris_events.identities WHERE event_id=$1', [plan.parent_id])).rows[0].count).toBe('2');
+      expect((await pool.query('SELECT count(*) FROM osiris_events.batches WHERE id=$1', [plan.operation_id])).rows[0].count).toBe('0');
+    } finally { await pool.query('ALTER TABLE osiris_events.events DROP CONSTRAINT reject_split_test'); }
   });
 
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {

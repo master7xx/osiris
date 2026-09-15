@@ -32,6 +32,11 @@ function normalizedContent(event: FusedEvent) {
   return content;
 }
 
+export function storedEventHash(event: FusedEvent) { return hash(normalizedContent(event)); }
+export function storedEvidenceKey(evidence: FusedEvent['evidence'][number]) {
+  return hash([evidence.source_id, evidence.url ?? null, evidence.published_at ?? null]);
+}
+
 /** Store primitive only: adapters supply exact identities; no new fuzzy matching rules. */
 export class DurableEventStore {
   constructor(private readonly pool: Pool) {}
@@ -69,7 +74,7 @@ export class DurableEventStore {
         [write.identities.map(id => id.sourceId), write.identities.map(id => id.upstreamId)]);
         if (ids.rows.length > 1) throw new Error('Identity conflict: explicit reconciliation required');
         const existing = ids.rows.length ? (await client.query<StoredRow>('SELECT id, revision, cursor, content_hash FROM osiris_events.events WHERE id=$1', [ids.rows[0].event_id])).rows[0] : undefined;
-        const contentHash = hash(normalizedContent(write.event));
+        const contentHash = storedEventHash(write.event);
         const changed = !existing || existing.content_hash !== contentHash;
         if (changed && (existing?.revision ?? null) !== write.expectedRevision) throw new Error('Revision conflict');
         const id = existing?.id ?? randomUUID();
@@ -88,7 +93,7 @@ export class DurableEventStore {
         for (const identity of write.identities) await client.query(`INSERT INTO osiris_events.identities (source_id,upstream_id,event_id)
           VALUES ($1,$2,$3) ON CONFLICT (source_id,upstream_id) DO NOTHING`, [identity.sourceId, identity.upstreamId, id]);
         for (const evidence of write.event.evidence) {
-          const key = hash([evidence.source_id, evidence.url ?? null, evidence.published_at ?? null]);
+          const key = storedEvidenceKey(evidence);
           await client.query(`INSERT INTO osiris_events.evidence (event_id,evidence_key,payload) VALUES ($1,$2,$3)
             ON CONFLICT (event_id,evidence_key) DO UPDATE SET payload=EXCLUDED.payload,last_observed_at=clock_timestamp()`, [id, key, JSON.stringify(evidence)]);
         }

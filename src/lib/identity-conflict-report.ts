@@ -1,3 +1,4 @@
+import { splitPayloadHash } from './reviewed-event-split';
 import { planIdentityReconciliation } from './identity-reconciliation-plan';
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
@@ -64,12 +65,19 @@ export async function identityConflictReport(pool: Pool, includePlan = false) {
         FROM osiris_events.identities i JOIN osiris_events.events e ON e.id=i.event_id
         WHERE i.event_id=ANY($1::uuid[]) LIMIT 100001`, [affected])).rows;
       if (allLinks.length > 100000) throw new Error('Diagnostic stored identity limit exceeded');
+      const previews = (await client.query(`SELECT e.id,e.revision,e.payload,e.payload->>'title' AS title,
+        e.payload->>'occurred_at' AS occurred_at,e.payload->'lat' AS lat,e.payload->'lng' AS lng,
+        (SELECT jsonb_agg(x) FROM (SELECT r.revision,r.committed_at,r.payload->>'title' AS title,
+          r.payload->>'occurred_at' AS occurred_at,r.payload->'lat' AS lat,r.payload->'lng' AS lng
+          FROM osiris_events.revisions r WHERE r.event_id=e.id ORDER BY r.revision DESC LIMIT 3) x) AS recent_revisions
+        FROM osiris_events.events e WHERE e.id=ANY($1::uuid[]) ORDER BY e.id`, [affected])).rows;
       reconciliation = { mode: 'dry-run', executable: false, epoch: meta.epoch,
         groups: planIdentityReconciliation(rows.map(r => r.payload as IncomingEvent), allLinks),
-        notes: ['Proposals require review of source semantics and historical payloads; no mutation executor exists.',
+        stored_event_reviews: previews.map(({ payload, ...preview }) => ({ ...preview, payload_hash: splitPayloadHash(payload) })),
+        notes: ['Proposals require review of source semantics and historical payloads; the internal mutation primitive is not callable from this report.',
           'new-event targets are stable symbolic references, not allocated UUIDs.',
           'Same provider ID observations are grouped; distinct IDs only propose separation when all stored keys are covered.',
-          'Provider IDs are public adapter identifiers; raw URLs, payloads and connection details are omitted.',
+          'Review includes source titles, times, coordinates and up to three latest historical revisions; this is not a full history audit. Raw URLs, descriptions and connection details are omitted.',
           'Apply would require a fresh snapshot, revision checks, atomic identity moves and supersession/replay support.'] };
     }
     await client.query('COMMIT');
