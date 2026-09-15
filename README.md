@@ -814,3 +814,28 @@ previously merged database records, reassign identities, delete history or fix
 existing repeated-target conflicts. The read-only identity conflict report may
 therefore show more separate candidates still targeting an old merged record.
 Review those links before any historical reconciliation.
+
+### Dry-run identity reconciliation proposals
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts
+```
+
+Extends the conflict report with `reconciliation` (`mode: dry-run`,
+`executable: false`). For affected stored UUIDs it reads every persisted identity,
+including keys absent from the retained 48-hour signals. Verified adapter IDs
+(USGS ID or GDACS type + numeric event ID) group repeated observations. Distinct
+IDs from one provider can produce `propose_split_for_review` only if every stored
+key maps unambiguously to a retained provider ID. Missing historical observations,
+shared keys, synthetic GDACS IDs and cross-provider correspondence block proposals.
+News conflicts remain manual review. These rules do not prove physical-event
+identity; source semantics and historical payloads still require review.
+
+Partitions expose public provider event IDs and hashed identity keys. Proposed
+moves use stable `new-event:` symbolic references, not allocated UUIDs. The
+original event/history would need preservation with explicit supersession; no
+executor, SQL mutations or client replay changes are implemented. The plan
+includes snapshot epoch/cursor and expected event revisions for future validation,
+but it must never be applied against a changed snapshot. At most 100,000 stored
+identity links are inspected; exceeding the bound fails rather than truncates.
+No migrations, collection, camera changes, retention or cleanup run.

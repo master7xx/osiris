@@ -151,6 +151,27 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect((await pool.query('SELECT count(*) FROM osiris_events.signals')).rows[0].count).toBe('1');
   });
 
+  it('dry-runs split proposals and blocks missing historical identities without writes', async () => {
+    const evidence = (id: string) => ({ source_id: 'usgs-earthquakes', source: 'USGS', kind: 'sensor' as const, independent: true, weight: 1, url: `https://example.org/${id}` });
+    const a = event({ id: 'usgs:a', evidence: [evidence('a')] });
+    const b = event({ id: 'usgs:b', evidence: [evidence('b')] });
+    const merged = { ...a, evidence: [...a.evidence, ...b.evidence] };
+    const result = await store.commitBatch(randomUUID(), [{ event: merged, identities: collectorIdentities(merged), expectedRevision: null }]);
+    await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2),($3,$4)', ['a', JSON.stringify(a), 'b', JSON.stringify(b)]);
+    const before = await new DurableEventReader(pool).bootstrap();
+    const report = await identityConflictReport(pool, true);
+    expect(report.reconciliation?.executable).toBe(false);
+    expect(report.reconciliation?.groups[0].action).toBe('propose_split_for_review');
+    expect(report.reconciliation?.groups[0].partitions).toHaveLength(2);
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    await pool.query('INSERT INTO osiris_events.identities (source_id,upstream_id,event_id) VALUES ($1,$2,$3)', ['usgs-earthquakes', 'expired', result.events[0].id]);
+    const blocked = await identityConflictReport(pool, true);
+    expect(blocked.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(blocked.reconciliation?.groups[0].proposed_changes).toBeNull();
+    expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('3');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+  });
+
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
     const bulletin = (serial: string, description = 'Original') => event({
       id: `swpc-${serial}`, description,
