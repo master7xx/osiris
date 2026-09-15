@@ -53,3 +53,32 @@ it('omits raw keys and creates deterministic symbolic references regardless of o
   expect(JSON.stringify(plan)).not.toContain('private-b');
   expect(planIdentityReconciliation([...signals].reverse(), [...links].reverse())).toEqual(plan);
 });
+
+it('withholds nearby wildfire partitions and leaves distant fires reviewable', () => {
+  const fires = [0, 0.005, 8].map((lat, i) => ({ ...signal(`gdacs:WF:${i}`, `fire-${i}`, 'gdacs'), category: 'wildfire' as const, lat, lng: 20 }));
+  const links = fires.map((_, i) => link(`fire-${i}`, 'gdacs'));
+  const near = planIdentityReconciliation(fires, links)[0];
+  expect(near.action).toBe('manual_review');
+  expect(near.proposed_changes).toBeNull();
+  expect(near.pair_reviews).toHaveLength(1);
+  expect(near.pair_reviews[0].distance_km).toBeLessThan(1);
+  expect(planIdentityReconciliation([fires[0], fires[2]], [links[0], links[2]])[0].action).toBe('propose_split_for_review');
+});
+
+it('flags cross-provider confirmations without splitting them automatically', () => {
+  const signals = [signal('usgs:a', 'a'), signal('gdacs:EQ:42', 'b', 'gdacs')].map(s => ({ ...s, lat: 2.4223, lng: 128.1704 }));
+  signals[1].occurred_at = '2026-09-15T00:00:00.500Z';
+  const group = planIdentityReconciliation(signals, [link('a'), link('b', 'gdacs')])[0];
+  expect(group.pair_reviews[0]).toMatchObject({ reason: 'possible_cross_provider_confirmation', distance_km: 0, time_difference_seconds: 0.5 });
+  expect(group.proposed_changes).toBeNull();
+});
+
+it('checks proximity across parents, independent of input order', () => {
+  const signals = [signal('usgs:a', 'a'), signal('usgs:b', 'b')].map(s => ({ ...s, lat: 19, lng: -65 }));
+  const links = [link('a'), { ...link('b'), event_id: 'another-parent' }];
+  const plan = planIdentityReconciliation(signals, links);
+  expect(plan.every(g => g.pair_reviews.length === 1 && g.blockers.includes('nearby_provider_events_require_review'))).toBe(true);
+  expect(planIdentityReconciliation([...signals].reverse(), [...links].reverse())).toEqual(plan);
+  signals[1].occurred_at = '2026-09-15T01:00:00Z';
+  expect(planIdentityReconciliation(signals, links).every(g => !g.pair_reviews.length)).toBe(true);
+});

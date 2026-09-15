@@ -30,7 +30,7 @@ export function planIdentityReconciliation(signals: IncomingEvent[], stored: Sto
   }
   const groups = new Map<string, StoredIdentityLink[]>();
   for (const link of stored) groups.set(link.event_id, [...(groups.get(link.event_id) ?? []), link]);
-  return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([eventId, links]) => {
+  const plan = [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([eventId, links]) => {
     const blockers = new Set<string>();
     const partitions = new Map<string, string[]>();
     const unresolved = [];
@@ -74,4 +74,47 @@ export function planIdentityReconciliation(signals: IncomingEvent[], stored: Sto
       } : null,
     };
   });
+  // Compare across stored parents too: an old fusion can separate two reports
+  // of the same event into different historical groups.
+  const members = plan.flatMap(group => group.partitions.map(partition => ({ group, partition })));
+  const pairReviews: { left_event: string; left_provider: string; right_event: string;
+    right_provider: string; reason: string; distance_km: number; time_difference_seconds: number }[] = [];
+  for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+    const a = members[i], b = members[j];
+    if (a.partition.source === b.partition.source && a.partition.provider_event_id === b.partition.provider_event_id) continue;
+    let match: typeof pairReviews[number] | undefined;
+    for (const x of a.partition.observations) for (const y of b.partition.observations) {
+      if (x.category !== y.category || !['earthquake', 'wildfire'].includes(x.category)) continue;
+      const coordinates = [x.lat, x.lng, y.lat, y.lng];
+      if (!coordinates.every(v => v !== null && Number.isFinite(v)) ||
+          Math.abs(x.lat!) > 90 || Math.abs(y.lat!) > 90 || Math.abs(x.lng!) > 180 || Math.abs(y.lng!) > 180) continue;
+      const seconds = Math.abs(Date.parse(x.occurred_at) - Date.parse(y.occurred_at)) / 1000;
+      const rad = Math.PI / 180;
+      const h = Math.sin((y.lat! - x.lat!) * rad / 2) ** 2 +
+        Math.cos(x.lat! * rad) * Math.cos(y.lat! * rad) * Math.sin((y.lng! - x.lng!) * rad / 2) ** 2;
+      const distance = 12742 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
+      // Conservative review thresholds, never an automatic merge decision.
+      if (!Number.isFinite(seconds) || distance > 25 || seconds > (x.category === 'earthquake' ? 900 : 86400)) continue;
+      const reason = a.partition.source !== b.partition.source
+        ? 'possible_cross_provider_confirmation' : 'nearby_provider_events_require_review';
+      const candidate = { left_event: a.group.stored_event_id,
+        left_provider: `${a.partition.source}:${a.partition.provider_event_id}`,
+        right_event: b.group.stored_event_id,
+        right_provider: `${b.partition.source}:${b.partition.provider_event_id}`,
+        reason, distance_km: distance, time_difference_seconds: seconds };
+      if (!match || distance < match.distance_km || (distance === match.distance_km && seconds < match.time_difference_seconds)) match = candidate;
+    }
+    if (match) {
+      pairReviews.push(match);
+      for (const group of [a.group, b.group]) {
+        if (!group.blockers.includes(match.reason)) group.blockers.push(match.reason);
+        group.blockers.sort();
+        group.action = 'manual_review';
+        group.proposed_changes = null;
+      }
+    }
+  }
+  return plan.map(group => ({ ...group, pair_reviews: pairReviews.filter(pair =>
+    pair.left_event === group.stored_event_id || pair.right_event === group.stored_event_id) }));
+
 }

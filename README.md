@@ -867,3 +867,12 @@ Before enabling application: review source semantics and full relevant history,
 construct reviewed child payloads, stop the collector, verify a fresh snapshot,
 and validate the apply workflow in PostgreSQL CI. There is no apply command yet;
 keep using `tools/identity-reconciliation-plan.ts` for read-only inspection.
+
+Reconciliation proposals also include `pair_reviews` for nearby hazard reports,
+including pairs attached to different historical parents. Earthquake reports
+within 25 km / 15 minutes and wildfire reports within 25 km / 24 hours require
+manual review; these are conservative screening thresholds, not proof of a
+shared event. Possible USGS/GDACS confirmations are identified without merging
+or separating their evidence. Any affected group has no proposed identity moves
+until reviewed. Missing coordinates cannot establish proximity, and an empty
+pair review is not approval to execute a split. This remains a read-only report.
