@@ -1,3 +1,5 @@
+import { splitPayloadHash } from './reviewed-event-split';
+import { planIdentityReconciliation } from './identity-reconciliation-plan';
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import { fuseEvents, type IncomingEvent } from './event-fusion';
@@ -34,13 +36,13 @@ export function inspectIdentityConflicts(candidates: { id: string; identities: I
   return conflicts;
 }
 
-export async function identityConflictReport(pool: Pool) {
+export async function identityConflictReport(pool: Pool, includePlan = false) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     await client.query("SET LOCAL statement_timeout='10s'");
     await client.query("SET LOCAL lock_timeout='2s'");
-    const meta = (await client.query('SELECT cursor,clock_timestamp() AS sampled_at FROM osiris_events.metadata WHERE singleton')).rows[0];
+    const meta = (await client.query('SELECT epoch,cursor,clock_timestamp() AS sampled_at FROM osiris_events.metadata WHERE singleton')).rows[0];
     if (!meta) throw new Error('Event store requires migration');
     const now = new Date(meta.sampled_at).getTime();
     const rows = (await client.query(`SELECT payload FROM osiris_events.signals
@@ -54,10 +56,34 @@ export async function identityConflictReport(pool: Pool) {
       FROM osiris_events.identities i JOIN osiris_events.events e ON e.id=i.event_id
       WHERE (i.source_id,i.upstream_id) IN (SELECT * FROM unnest($1::text[],$2::text[]))`,
     [identities.map(i => i.sourceId), identities.map(i => i.upstreamId)])).rows;
-    await client.query('COMMIT');
     const conflicts = inspectIdentityConflicts(candidates, matches);
+    let reconciliation;
+    if (includePlan) {
+      const affected = [...new Set(conflicts.flatMap(c => c.links.flatMap(l => l.events.map(e => e.id))))];
+      // Read ALL identities for affected events, not only currently retained keys.
+      const allLinks = (await client.query<Match>(`SELECT i.source_id,i.upstream_id,i.event_id,e.revision
+        FROM osiris_events.identities i JOIN osiris_events.events e ON e.id=i.event_id
+        WHERE i.event_id=ANY($1::uuid[]) LIMIT 100001`, [affected])).rows;
+      if (allLinks.length > 100000) throw new Error('Diagnostic stored identity limit exceeded');
+      const previews = (await client.query(`SELECT e.id,e.revision,e.payload,e.payload->>'title' AS title,
+        e.payload->>'occurred_at' AS occurred_at,e.payload->'lat' AS lat,e.payload->'lng' AS lng,
+        (SELECT jsonb_agg(x) FROM (SELECT r.revision,r.committed_at,r.payload->>'title' AS title,
+          r.payload->>'occurred_at' AS occurred_at,r.payload->'lat' AS lat,r.payload->'lng' AS lng
+          FROM osiris_events.revisions r WHERE r.event_id=e.id ORDER BY r.revision DESC LIMIT 3) x) AS recent_revisions
+        FROM osiris_events.events e WHERE e.id=ANY($1::uuid[]) ORDER BY e.id`, [affected])).rows;
+      reconciliation = { mode: 'dry-run', executable: false, epoch: meta.epoch,
+        groups: planIdentityReconciliation(rows.map(r => r.payload as IncomingEvent), allLinks),
+        stored_event_reviews: previews.map(({ payload, ...preview }) => ({ ...preview, payload_hash: splitPayloadHash(payload) })),
+        notes: ['Proposals require review of source semantics and historical payloads; the internal mutation primitive is not callable from this report.',
+          'new-event targets are stable symbolic references, not allocated UUIDs.',
+          'Same provider ID observations are grouped; distinct IDs only propose separation when all stored keys are covered.',
+          'Review includes source titles, times, coordinates and up to three latest historical revisions; this is not a full history audit. Raw URLs, descriptions and connection details are omitted.',
+          'Apply would require a fresh snapshot, revision checks, atomic identity moves and supersession/replay support.'] };
+    }
+    await client.query('COMMIT');
     return { sampled_at: meta.sampled_at, cursor: meta.cursor, signal_count: rows.length,
       candidate_count: candidates.length, skipped_candidates: conflicts.length, conflicts,
+      ...(includePlan ? { reconciliation } : {}),
       notes: ['Read-only reconstruction from retained signals, not a recording of the previous collector cycle.',
         'Fusion time, signal order and concurrent collection can change candidates and skip counts.',
         'Identity fingerprints are SHA-256 correlation keys, not anonymization; raw URLs, titles and payloads are omitted.',

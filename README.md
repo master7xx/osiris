@@ -796,3 +796,83 @@ new signals, fusion time and row ordering can change its results. An empty repor
 does not prove historical conflicts have been resolved. The command refuses more
 than 10,000 signals or 100,000 distinct identities rather than silently truncating
 the analysis; SQL statements have 10-second and lock waits 2-second limits.
+
+### Hazard fusion identity boundaries
+
+Fusion keeps distinct adapter event IDs from the same USGS or GDACS provider
+separate, including when titles, locations or collection URLs match. Updated
+observations with the same adapter ID can still fuse. A cluster cannot bypass
+this boundary via an intervening report from another source. These guards use
+the IDs already present in retained adapter signals; durable identity keys are
+unchanged. Without an exact report match, earthquake fusion now requires known
+positions within 25 km and occurrence times within 15 minutes; title similarity
+alone is insufficient. Cross-source matching remains heuristic, not proof of
+identity. Existing digest/withdrawal and explicit-report rules still apply.
+
+This prevents further grouping of distinct provider events. It does not split
+previously merged database records, reassign identities, delete history or fix
+existing repeated-target conflicts. The read-only identity conflict report may
+therefore show more separate candidates still targeting an old merged record.
+Review those links before any historical reconciliation.
+
+### Dry-run identity reconciliation proposals
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts
+```
+
+Extends the conflict report with `reconciliation` (`mode: dry-run`,
+`executable: false`). For affected stored UUIDs it reads every persisted identity,
+including keys absent from the retained 48-hour signals. Verified adapter IDs
+(USGS ID or GDACS type + numeric event ID) group repeated observations. Distinct
+IDs from one provider can produce `propose_split_for_review` only if every stored
+key maps unambiguously to a retained provider ID. Missing historical observations,
+shared keys, synthetic GDACS IDs and cross-provider correspondence block proposals.
+News conflicts remain manual review. These rules do not prove physical-event
+identity; source semantics and historical payloads still require review.
+
+Partitions expose public provider event IDs and hashed identity keys. Proposed
+moves use stable `new-event:` symbolic references, not allocated UUIDs. The
+original event/history would need preservation with explicit supersession; no
+apply CLI is exposed by this report. The plan
+includes snapshot epoch/cursor and expected event revisions for future validation,
+but it must never be applied against a changed snapshot. At most 100,000 stored
+identity links are inspected; exceeding the bound fails rather than truncates.
+No migrations, collection, camera changes, retention or cleanup run.
+
+### Reviewed split implementation (not enabled for production use)
+
+The dry-run now includes source titles, times and coordinates for each partition,
+and the current parent plus up to three latest historical revision summaries.
+This is a limited review aid, not a complete historical audit. `payload_hash`
+identifies the current parent payload, including changes that do not bump revision.
+
+`applyReviewedSplit` is an internal, unconnected primitive: no API, collector or
+CLI invokes it. It accepts explicitly reviewed child payloads/identity partitions
+and an exact document checksum. A checksum is not authorization or proof that
+source matching is correct. Dry-run proposals are not accepted as executable input.
+No production records have been split by this work.
+
+The primitive locks replay metadata and requires the reviewed epoch, cursor,
+parent revision/payload hash, complete disjoint identity coverage and no active
+collector lease. It creates children, moves identities, appends the parent's
+`replaced_by` revision, and commits the cursor and operation receipt together.
+Failures roll back all writes. Identical operation IDs/documents return the prior
+result; changed reuse is rejected. Original evidence and all historical revisions
+remain. Current durable feeds hide `replaced_by` parents; raw storage/replay still
+contains them. Browser synchronization publishes all pages as one checkpoint and
+also hides replaced parents during bootstrap. Camera behavior is unchanged.
+
+Before enabling application: review source semantics and full relevant history,
+construct reviewed child payloads, stop the collector, verify a fresh snapshot,
+and validate the apply workflow in PostgreSQL CI. There is no apply command yet;
+keep using `tools/identity-reconciliation-plan.ts` for read-only inspection.
+
+Reconciliation proposals also include `pair_reviews` for nearby hazard reports,
+including pairs attached to different historical parents. Earthquake reports
+within 25 km / 15 minutes and wildfire reports within 25 km / 24 hours require
+manual review; these are conservative screening thresholds, not proof of a
+shared event. Possible USGS/GDACS confirmations are identified without merging
+or separating their evidence. Any affected group has no proposed identity moves
+until reviewed. Missing coordinates cannot establish proximity, and an empty
+pair review is not approval to execute a split. This remains a read-only report.
