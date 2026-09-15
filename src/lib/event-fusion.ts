@@ -157,10 +157,23 @@ function evidenceUrls(event: IncomingEvent) {
   return new Set(event.evidence.map(item => item.url).filter((url): url is string => Boolean(url)));
 }
 
+/** Adapter IDs remain stable across observations; do not change durable identity keys. */
+function distinctHazardIdentities(a: IncomingEvent, b: IncomingEvent): boolean {
+  for (const [source, prefix] of [['usgs-earthquakes', 'usgs:'], ['gdacs', 'gdacs:']]) {
+    if (a.id.startsWith(prefix) && b.id.startsWith(prefix)
+      && a.evidence.some(e => e.source_id === source)
+      && b.evidence.some(e => e.source_id === source)
+      && a.id !== b.id) return true;
+  }
+  return false;
+}
+
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (Boolean(a.withdrawn) !== Boolean(b.withdrawn)) return false;
   if (a.id === b.id) return true;
+
+  if (distinctHazardIdentities(a, b)) return false;
 
   const explicit = explicitReportMatch(a.evidence, b.evidence);
   if (explicit !== undefined) return explicit;
@@ -178,9 +191,10 @@ export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   const sameFamily = categoryFamily(a.category) === categoryFamily(b.category);
 
   // Earthquake sequences can contain many real aftershocks in the same area.
-  // Require either a strong title match or an extremely tight time+space match.
+  // Without a shared identity, require both time and distance; titles alone
+  // cannot distinguish separate earthquakes or establish their location.
   if (sameCategory && a.category === 'earthquake') {
-    return similarity >= 0.4 || (timeDelta <= 15 * 60_000 && distance !== undefined && distance <= 25);
+    return timeDelta <= 15 * 60_000 && distance !== undefined && distance <= 25;
   }
 
   if (similarity >= 0.68 && (distance === undefined || distance <= 250)) return true;
@@ -304,7 +318,8 @@ export function fuseEvents(events: IncomingEvent[], options: { now?: number; lim
 
   const clusters: IncomingEvent[][] = [];
   for (const event of valid) {
-    const cluster = clusters.find(rows => rows.some(existing => shouldFuseEvents(existing, event)));
+    const cluster = clusters.find(rows => !rows.some(existing => distinctHazardIdentities(existing, event))
+      && rows.some(existing => shouldFuseEvents(existing, event)));
     if (cluster) cluster.push(event);
     else clusters.push([event]);
   }

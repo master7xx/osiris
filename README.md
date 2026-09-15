@@ -796,3 +796,21 @@ new signals, fusion time and row ordering can change its results. An empty repor
 does not prove historical conflicts have been resolved. The command refuses more
 than 10,000 signals or 100,000 distinct identities rather than silently truncating
 the analysis; SQL statements have 10-second and lock waits 2-second limits.
+
+### Hazard fusion identity boundaries
+
+Fusion keeps distinct adapter event IDs from the same USGS or GDACS provider
+separate, including when titles, locations or collection URLs match. Updated
+observations with the same adapter ID can still fuse. A cluster cannot bypass
+this boundary via an intervening report from another source. These guards use
+the IDs already present in retained adapter signals; durable identity keys are
+unchanged. Without an exact report match, earthquake fusion now requires known
+positions within 25 km and occurrence times within 15 minutes; title similarity
+alone is insufficient. Cross-source matching remains heuristic, not proof of
+identity. Existing digest/withdrawal and explicit-report rules still apply.
+
+This prevents further grouping of distinct provider events. It does not split
+previously merged database records, reassign identities, delete history or fix
+existing repeated-target conflicts. The read-only identity conflict report may
+therefore show more separate candidates still targeting an old merged record.
+Review those links before any historical reconciliation.
