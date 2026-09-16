@@ -876,3 +876,28 @@ shared event. Possible USGS/GDACS confirmations are identified without merging
 or separating their evidence. Any affected group has no proposed identity moves
 until reviewed. Missing coordinates cannot establish proximity, and an empty
 pair review is not approval to execute a split. This remains a read-only report.
+
+### Fixed reconciliation snapshot
+
+Export once while PostgreSQL is reachable; the web server and collector need not
+be running. Pass earlier reports to preserve their affected event IDs even when
+observations have left the 48-hour window. The export uses a single repeatable-read,
+read-only transaction and includes retained analysis inputs, all identity links
+for affected parents, current parent payloads and their full revision history.
+It cannot recover observations already unavailable in the analysis window.
+Limits (10,000 signals / 100,000 links / 100,000 revisions) fail the export instead
+of silently truncating it. The snapshot is local diagnostic data, not a DB backup;
+it contains source text and URLs, so share the generated review rather than the snapshot.
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-snapshot.ts export identity-snapshot.json identity-reconciliation-review.json identity-reconciliation-review-v2.json
+node --import tsx tools/identity-reconciliation-snapshot.ts replay identity-review-fixed.json identity-snapshot.json
+```
+
+Both commands write UTF-8 directly and refuse to overwrite an existing output.
+Replay requires no database connection and uses the frozen inputs without current
+time. It verifies the format, algorithm version and checksum. Missing parent
+identity links appear in `unresolved_event_ids`; missing observations remain
+blockers. Keep the snapshot with the matching code version. Checksums detect
+accidental modification, not authenticity or authorization. No apply command is
+introduced and no database rows are changed.

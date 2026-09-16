@@ -1,3 +1,4 @@
+import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
 import { applyReviewedSplit, splitReviewHash, splitPayloadHash, type ReviewedSplit } from './reviewed-event-split';
 import { identityConflictReport } from './identity-conflict-report';
 import { eventStoreStatus } from './event-store-status';
@@ -164,6 +165,16 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(report.reconciliation?.executable).toBe(false);
     expect(report.reconciliation?.groups[0].action).toBe('propose_split_for_review');
     expect(report.reconciliation?.groups[0].partitions).toHaveLength(2);
+    const captured = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    const snapshot = createIdentitySnapshot(captured);
+    const replay = replayIdentitySnapshot(snapshot);
+    expect(replay.reconciliation.groups).toEqual(captured.reconciliation?.groups);
+    expect(captured.snapshotData?.history).toHaveLength(1);
+    await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");
+    const expired = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    expect(expired.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(replayIdentitySnapshot(snapshot)).toEqual(replay);
+    await pool.query('UPDATE osiris_events.signals SET observed_at=clock_timestamp()');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
     await pool.query('INSERT INTO osiris_events.identities (source_id,upstream_id,event_id) VALUES ($1,$2,$3)', ['usgs-earthquakes', 'expired', result.events[0].id]);
     const blocked = await identityConflictReport(pool, true);

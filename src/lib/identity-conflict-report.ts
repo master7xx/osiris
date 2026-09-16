@@ -36,7 +36,7 @@ export function inspectIdentityConflicts(candidates: { id: string; identities: I
   return conflicts;
 }
 
-export async function identityConflictReport(pool: Pool, includePlan = false) {
+export async function identityConflictReport(pool: Pool, includePlan = false, snapshotOptions?: { previousIds: string[] }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -58,8 +58,9 @@ export async function identityConflictReport(pool: Pool, includePlan = false) {
     [identities.map(i => i.sourceId), identities.map(i => i.upstreamId)])).rows;
     const conflicts = inspectIdentityConflicts(candidates, matches);
     let reconciliation;
+    let snapshotData;
     if (includePlan) {
-      const affected = [...new Set(conflicts.flatMap(c => c.links.flatMap(l => l.events.map(e => e.id))))];
+      const affected = [...new Set([...conflicts.flatMap(c => c.links.flatMap(l => l.events.map(e => e.id))), ...(snapshotOptions?.previousIds ?? [])])].sort();
       // Read ALL identities for affected events, not only currently retained keys.
       const allLinks = (await client.query<Match>(`SELECT i.source_id,i.upstream_id,i.event_id,e.revision
         FROM osiris_events.identities i JOIN osiris_events.events e ON e.id=i.event_id
@@ -71,6 +72,14 @@ export async function identityConflictReport(pool: Pool, includePlan = false) {
           r.payload->>'occurred_at' AS occurred_at,r.payload->'lat' AS lat,r.payload->'lng' AS lng
           FROM osiris_events.revisions r WHERE r.event_id=e.id ORDER BY r.revision DESC LIMIT 3) x) AS recent_revisions
         FROM osiris_events.events e WHERE e.id=ANY($1::uuid[]) ORDER BY e.id`, [affected])).rows;
+      if (snapshotOptions) {
+        const history = (await client.query(`SELECT event_id,revision,committed_at,payload
+          FROM osiris_events.revisions WHERE event_id=ANY($1::uuid[])
+          ORDER BY event_id,revision LIMIT 100001`, [affected])).rows;
+        if (history.length > 100000) throw new Error('Diagnostic history limit exceeded');
+        snapshotData = { signals: rows.map(r => r.payload as IncomingEvent), links: allLinks,
+          requested_event_ids: affected, events: previews, history };
+      }
       reconciliation = { mode: 'dry-run', executable: false, epoch: meta.epoch,
         groups: planIdentityReconciliation(rows.map(r => r.payload as IncomingEvent), allLinks),
         stored_event_reviews: previews.map(({ payload, ...preview }) => ({ ...preview, payload_hash: splitPayloadHash(payload) })),
@@ -84,6 +93,7 @@ export async function identityConflictReport(pool: Pool, includePlan = false) {
     return { sampled_at: meta.sampled_at, cursor: meta.cursor, signal_count: rows.length,
       candidate_count: candidates.length, skipped_candidates: conflicts.length, conflicts,
       ...(includePlan ? { reconciliation } : {}),
+      ...(snapshotData ? { snapshotData } : {}),
       notes: ['Read-only reconstruction from retained signals, not a recording of the previous collector cycle.',
         'Fusion time, signal order and concurrent collection can change candidates and skip counts.',
         'Identity fingerprints are SHA-256 correlation keys, not anonymization; raw URLs, titles and payloads are omitted.',
