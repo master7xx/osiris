@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { FusedEvent } from './event-fusion';
 import { storedEventHash, storedEvidenceKey } from './durable-event-store';
 
@@ -21,8 +21,8 @@ export function splitReviewHash(plan: ReviewedSplit) {
   return createHash('sha256').update(JSON.stringify(plan)).digest('hex');
 }
 
-/** Internal primitive only. No API/collector/CLI calls this mutation path. */
-export async function applyReviewedSplit(pool: Pool, plan: ReviewedSplit, approvedHash: string) {
+/** Caller owns the transaction; used for one split or an atomic package. */
+export async function applyReviewedSplitInTransaction(client: PoolClient, plan: ReviewedSplit, approvedHash: string) {
   plan = structuredClone(plan);
   const digest = splitReviewHash(plan);
   if (digest !== approvedHash) throw new Error('Split review changed');
@@ -39,17 +39,13 @@ export async function applyReviewedSplit(pool: Pool, plan: ReviewedSplit, approv
     const evidenceKeys = new Set(child.event.evidence.map(e => identityKey({ sourceId: e.source_id, upstreamId: e.upstream_id || e.url || '' })));
     if (evidenceKeys.size !== child.identities.length || child.identities.some(id => !id.sourceId || !id.upstreamId || !evidenceKeys.has(identityKey(id)))) throw new Error('Split evidence must cover every identity');
   }
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query("SET LOCAL lock_timeout='2s'");
-    await client.query("SET LOCAL statement_timeout='10s'");
+
     const meta = (await client.query('SELECT epoch,cursor FROM osiris_events.metadata WHERE singleton FOR UPDATE')).rows[0];
     if (!meta || meta.epoch !== plan.epoch) throw new Error('Split epoch changed');
     const prior = (await client.query('SELECT input_hash,result FROM osiris_events.batches WHERE id=$1', [plan.operation_id])).rows[0];
     if (prior) {
       if (prior.input_hash !== `split:${digest}`) throw new Error('Split operation ID reused');
-      await client.query('COMMIT'); return prior.result as { parent_id: string; child_ids: string[]; cursor: string };
+      return prior.result as { parent_id: string; child_ids: string[]; cursor: string };
     }
     if (!meta || meta.epoch !== plan.epoch || meta.cursor !== plan.cursor) throw new Error('Split snapshot changed');
     if ((await client.query('SELECT 1 FROM osiris_events.collector WHERE expires_at>clock_timestamp()')).rowCount) throw new Error('Stop collector before applying split');
@@ -81,7 +77,18 @@ export async function applyReviewedSplit(pool: Pool, plan: ReviewedSplit, approv
     const result = { parent_id: plan.parent_id, child_ids: childIds, cursor: cursor.toString() };
     await client.query('UPDATE osiris_events.metadata SET cursor=$1 WHERE singleton', [result.cursor]);
     await client.query('INSERT INTO osiris_events.batches (id,input_hash,result) VALUES ($1,$2,$3)', [plan.operation_id, `split:${digest}`, JSON.stringify(result)]);
-    await client.query('COMMIT'); return result;
+    return result;
+}
+
+export async function applyReviewedSplit(pool: Pool, plan: ReviewedSplit, approvedHash: string) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query("SET LOCAL lock_timeout='2s'");
+    await client.query("SET LOCAL statement_timeout='10s'");
+    const result = await applyReviewedSplitInTransaction(client, plan, approvedHash);
+    await client.query('COMMIT');
+    return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }

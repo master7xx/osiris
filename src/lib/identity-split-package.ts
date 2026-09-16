@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { fuseEvents, type IncomingEvent } from './event-fusion';
 import { collectorIdentities } from './collector-observations';
 import { identitySnapshotInputs, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
@@ -74,13 +74,9 @@ export function validateIdentitySplitPackage(value: unknown): IdentitySplitPacka
 }
 
 /** Read-only point-in-time check. Actual application must repeat checks under writer locks. */
-export async function checkIdentitySplitPackage(pool: Pool, value: unknown) {
+export async function checkIdentitySplitPackageInTransaction(client: PoolClient, value: unknown) {
   const p = validateIdentitySplitPackage(value);
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    await client.query("SET LOCAL statement_timeout='10s'");
-    await client.query("SET LOCAL lock_timeout='2s'");
+
     const meta = (await client.query('SELECT epoch,cursor,clock_timestamp() AS checked_at FROM osiris_events.metadata WHERE singleton')).rows[0];
     const collectorActive = !!(await client.query('SELECT 1 FROM osiris_events.collector WHERE expires_at>clock_timestamp()')).rowCount;
     const ids = p.data.splits.map(s => s.parent_id);
@@ -108,7 +104,6 @@ export async function checkIdentitySplitPackage(pool: Pool, value: unknown) {
           title: c.event.title, occurred_at: c.event.occurred_at, lat: c.event.lat ?? null, lng: c.event.lng ?? null,
           identity_count: c.identities.length })) };
     });
-    await client.query('COMMIT');
     return { mode: 'read-only-preflight', executable: false, checked_at: meta?.checked_at ?? null, package_checksum: p.checksum,
       snapshot_checksum: p.data.snapshot_checksum, database_matches_package: !globalBlockers.length && groups.every(g => !g.blockers.length),
       global_blockers: globalBlockers, groups, excluded: p.data.excluded, unresolved_event_ids: p.data.unresolved_event_ids,
@@ -117,6 +112,18 @@ export async function checkIdentitySplitPackage(pool: Pool, value: unknown) {
       notes: ['A matching database is not semantic approval. No data was modified.',
         'No source observation timestamps were inferred from discovery time.',
         'Each applied split advances the cursor; this package cannot be applied as independent unchanged-cursor operations.'] };
+
+}
+
+export async function checkIdentitySplitPackage(pool: Pool, value: unknown) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query("SET LOCAL statement_timeout='10s'");
+    await client.query("SET LOCAL lock_timeout='2s'");
+    const result = await checkIdentitySplitPackageInTransaction(client, value);
+    await client.query('COMMIT');
+    return result;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   finally { client.release(); }
 }

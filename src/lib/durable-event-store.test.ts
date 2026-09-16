@@ -1,3 +1,4 @@
+import { applyIdentityPackage, verifyIdentityPackage } from './apply-identity-package';
 import { buildIdentitySplitPackage, checkIdentitySplitPackage } from './identity-split-package';
 import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
 import { applyReviewedSplit, splitReviewHash, splitPayloadHash, type ReviewedSplit } from './reviewed-event-split';
@@ -197,6 +198,58 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(blocked.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
     expect(blocked.reconciliation?.groups[0].proposed_changes).toBeNull();
     expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('3');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+  });
+
+  async function packageFixture() {
+    const signals = [0, 1, 2, 3].map(i => event({ id: `usgs:package${i}`, title: `Package child ${i}`,
+      lat: [-50, -10, 30, 70][i], lng: i * 30,
+      evidence: [{ source_id: 'usgs-earthquakes', source: 'USGS', kind: 'sensor', independent: true, weight: 1, url: `https://example.org/package${i}` }] }));
+    for (const i of [0, 2]) {
+      const merged = { ...signals[i], evidence: [...signals[i].evidence, ...signals[i + 1].evidence] };
+      await store.commitBatch(randomUUID(), [{ event: merged, identities: collectorIdentities(merged), expectedRevision: null }]);
+    }
+    for (const signal of signals) await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', [signal.id, JSON.stringify(signal)]);
+    const snapshot = createIdentitySnapshot(await identityConflictReport(pool, true, { previousIds: [] }));
+    return buildIdentitySplitPackage(snapshot);
+  }
+
+  it('applies a whole package once and verifies history, identities and replay', async () => {
+    const pkg = await packageFixture();
+    expect(pkg.data.splits).toHaveLength(2);
+    const result = await applyIdentityPackage(pool, pkg, pkg.checksum);
+    expect(result.groups).toHaveLength(2);
+    expect(BigInt(result.final_cursor) - BigInt(result.initial_cursor)).toBe(BigInt(6));
+    expect((await verifyIdentityPackage(pool, pkg)).verified).toBe(true);
+    expect(await applyIdentityPackage(pool, pkg, pkg.checksum)).toEqual(result);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.events')).rows[0].count).toBe('6');
+  });
+
+  it('rolls back earlier splits when the last group fails', async () => {
+    const pkg = await packageFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    const title = pkg.data.splits[1].children[1].event.title;
+    // Test fixture uses a generated constant, never external input in SQL.
+    if (!/^Package child [0-3]$/.test(title)) throw new Error('Unexpected test title');
+    await pool.query(`ALTER TABLE osiris_events.events ADD CONSTRAINT reject_package_test CHECK (payload->>'title' <> '${title}')`);
+    try {
+      await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow();
+      expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+      expect((await pool.query("SELECT count(*) FROM osiris_events.batches WHERE input_hash LIKE 'package:%' OR input_hash LIKE 'split:%'")).rows[0].count).toBe('0');
+      expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('4');
+    } finally { await pool.query('ALTER TABLE osiris_events.events DROP CONSTRAINT reject_package_test'); }
+    expect((await applyIdentityPackage(pool, pkg, pkg.checksum)).groups).toHaveLength(2);
+  });
+
+  it('rejects wrong approval, a running collector and changed provenance without writes', async () => {
+    const pkg = await packageFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    await expect(applyIdentityPackage(pool, pkg, 'incorrect')).rejects.toThrow('checksum');
+    const lease = await acquireCollectorLease(pool, randomUUID());
+    await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
+    await releaseCollectorLease(pool, lease!);
+    await pool.query("UPDATE osiris_events.signals SET payload=jsonb_set(payload,'{severity}','99'::jsonb)");
+    await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
   });
 

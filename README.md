@@ -840,15 +840,15 @@ but it must never be applied against a changed snapshot. At most 100,000 stored
 identity links are inspected; exceeding the bound fails rather than truncates.
 No migrations, collection, camera changes, retention or cleanup run.
 
-### Reviewed split implementation (not enabled for production use)
+### Reviewed split implementation
 
 The dry-run now includes source titles, times and coordinates for each partition,
 and the current parent plus up to three latest historical revision summaries.
 This is a limited review aid, not a complete historical audit. `payload_hash`
 identifies the current parent payload, including changes that do not bump revision.
 
-`applyReviewedSplit` is an internal, unconnected primitive: no API, collector or
-CLI invokes it. It accepts explicitly reviewed child payloads/identity partitions
+`applyReviewedSplit` is the single-parent transaction wrapper. The explicit package
+CLI reuses its transactional core; no API or collector applies repairs. It accepts reviewed child payloads/identity partitions
 and an exact document checksum. A checksum is not authorization or proof that
 source matching is correct. Dry-run proposals are not accepted as executable input.
 No production records have been split by this work.
@@ -865,8 +865,8 @@ also hides replaced parents during bootstrap. Camera behavior is unchanged.
 
 Before enabling application: review source semantics and full relevant history,
 construct reviewed child payloads, stop the collector, verify a fresh snapshot,
-and validate the apply workflow in PostgreSQL CI. There is no apply command yet;
-keep using `tools/identity-reconciliation-plan.ts` for read-only inspection.
+and validate the apply workflow in PostgreSQL CI. Use the explicit package workflow
+below; `tools/identity-reconciliation-plan.ts` remains read-only.
 
 Reconciliation proposals also include `pair_reviews` for nearby hazard reports,
 including pairs attached to different historical parents. Earthquake reports
@@ -899,8 +899,8 @@ Replay requires no database connection and uses the frozen inputs without curren
 time. It verifies the format, algorithm version and checksum. Missing parent
 identity links appear in `unresolved_event_ids`; missing observations remain
 blockers. Keep the snapshot with the matching code version. Checksums detect
-accidental modification, not authenticity or authorization. No apply command is
-introduced and no database rows are changed.
+accidental modification, not authenticity or authorization. Snapshot export and
+replay do not change database rows.
 
 ### Concrete split package and read-only preflight
 
@@ -925,9 +925,8 @@ which includes proposed titles, locations, times and blockers without raw source
 approval or permission to mutate data. Snapshot v1 lacks persisted per-signal
 observation timestamps; proposed children explicitly have `observed_at: null` and
 application must obtain verified observation times rather than substitute discovery
-time. There is no apply CLI. Future application must repeat transactional checks
-and account for the cursor advancing after each split; the package's original
-cursor cannot simply be reused for every operation. Parent history remains intact.
+time. The explicit apply command repeats transactional checks and advances the cursor
+for each split inside one transaction. Parent history remains intact.
 
 The package `check` command also verifies per-child source observation times
 against persisted `signals.observed_at`. It rebuilds each child at the fixed
@@ -938,3 +937,42 @@ older rows still stored can be verified, but deleted rows cannot be reconstructe
 Successful checks include `observed_at` for each child and remove the timestamp
 requirement from the report; the original package remains unchanged and non-executable.
 Run check again using a new output filename such as `identity-split-times.json`.
+
+
+### Apply and verify an explicitly reviewed package
+
+`apply` is the only CLI mode that mutates the event store. It requires the exact
+reviewed package checksum via `--approve`; do not generate approval by blindly
+copying a checksum from an unreviewed file. The existing package stays unchanged.
+
+Stop the web/collector (`Ctrl+C`), keep PostgreSQL reachable, and use:
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-split-package.ts check identity-split-package.json identity-before-apply.json
+if ($LASTEXITCODE -ne 0) { throw "Preflight failed; do not apply" }
+# Replace REVIEWED_CHECKSUM with the literal checksum from the reviewed report.
+node --env-file=.env.local --import tsx tools/identity-split-package.ts apply identity-split-package.json identity-apply-receipt.json --approve REVIEWED_CHECKSUM
+if ($LASTEXITCODE -ne 0) { throw "Apply failed; keep collector stopped and inspect" }
+node --env-file=.env.local --import tsx tools/identity-split-package.ts verify identity-split-package.json identity-after-apply.json
+if ($LASTEXITCODE -ne 0) { throw "Verification failed; keep collector stopped" }
+npm run dev
+```
+
+All splits and receipts commit together. Metadata is locked; collector and signal
+tables are held against concurrent writes while the source times, payloads, parent
+revisions and identity assignments are checked again. No excluded group is applied.
+Any failure before commit rolls back the entire package. This does not delete old
+parents, evidence or revisions. New UUIDs are allocated only inside application.
+
+A deterministic operation ID and database receipt make retries idempotent. If the
+connection is lost after commit, repeat the same package and literal approval with
+an unused output filename; it returns the stored receipt without writing again.
+Output is reserved before mutation. A disk write failure after commit does not undo
+the database transaction; its receipt remains recoverable by the same retry.
+
+`verify` is read-only and checks the durable receipt, final cursor, parent replacement
+revisions, prior history presence, child content/observation times and exact identity
+assignments. Run it before restarting collection: subsequent collection may change
+current payloads or advance the cursor and will be reported. `check` and `verify`
+exit nonzero when their checks fail. Full rollback/retry and changed-precondition
+scenarios are covered by the PostgreSQL integration suite.
