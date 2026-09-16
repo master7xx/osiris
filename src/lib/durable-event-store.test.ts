@@ -156,7 +156,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
   it('dry-runs split proposals and blocks missing historical identities without writes', async () => {
     const evidence = (id: string) => ({ source_id: 'usgs-earthquakes', source: 'USGS', kind: 'sensor' as const, independent: true, weight: 1, url: `https://example.org/${id}` });
     const a = event({ id: 'usgs:a', evidence: [evidence('a')] });
-    const b = event({ id: 'usgs:b', evidence: [evidence('b')] });
+    const b = event({ id: 'usgs:b', lat: 40, lng: 100, evidence: [evidence('b')] });
     const merged = { ...a, evidence: [...a.evidence, ...b.evidence] };
     const result = await store.commitBatch(randomUUID(), [{ event: merged, identities: collectorIdentities(merged), expectedRevision: null }]);
     await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2),($3,$4)', ['a', JSON.stringify(a), 'b', JSON.stringify(b)]);
@@ -165,6 +165,11 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(report.reconciliation?.executable).toBe(false);
     expect(report.reconciliation?.groups[0].action).toBe('propose_split_for_review');
     expect(report.reconciliation?.groups[0].partitions).toHaveLength(2);
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify({ ...b, lat: a.lat, lng: a.lng }), 'b']);
+    const nearby = await identityConflictReport(pool, true);
+    expect(nearby.reconciliation?.groups[0].blockers).toContain('nearby_provider_events_require_review');
+    expect(nearby.reconciliation?.groups[0].proposed_changes).toBeNull();
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify(b), 'b']);
     const captured = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
     const snapshot = createIdentitySnapshot(captured);
     const replay = replayIdentitySnapshot(snapshot);
