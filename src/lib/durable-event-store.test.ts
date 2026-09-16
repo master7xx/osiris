@@ -180,6 +180,8 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     const check = await checkIdentitySplitPackage(pool, pkg);
     expect(check.database_matches_package).toBe(true);
     expect(check.executable).toBe(false);
+    expect(check.groups[0].children.every(c => c.observed_at !== null && c.observation_blocker === null)).toBe(true);
+    expect(check.application_requirements).not.toContain('verified_source_observation_times');
     expect(replay.reconciliation.groups).toEqual(captured.reconciliation?.groups);
     expect(captured.snapshotData?.history).toHaveLength(1);
     await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");

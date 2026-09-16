@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { createIdentitySnapshot } from './identity-reconciliation-snapshot';
-import { buildIdentitySplitPackage, validateIdentitySplitPackage } from './identity-split-package';
+import { buildIdentitySplitPackage, validateIdentitySplitPackage, verifyChildObservation } from './identity-split-package';
 
 function fixture(near = false, extraEvidence = false) {
   const signals = [0, 1].map(i => ({ id: `usgs:${i}`, title: `Earthquake ${i}`, category: 'earthquake',
@@ -31,4 +31,25 @@ it('rejects modified package contents', () => {
   const p = buildIdentitySplitPackage(fixture());
   p.data.splits[0].children[0].event.title = 'changed';
   expect(() => validateIdentitySplitPackage(p)).toThrow();
+});
+
+it('verifies persisted observation time without requiring a recent observation', () => {
+  const snapshot = fixture();
+  const child = buildIdentitySplitPackage(snapshot).data.splits[0].children[0];
+  const payload = snapshot.data.report.snapshotData.signals[0];
+  const rows = [{ payload, observed_at: '2026-09-15T02:00:00Z' }];
+  expect(verifyChildObservation(child, rows, '2026-09-16T00:00:00Z', Date.parse('2026-10-01')))
+    .toEqual({ observed_at: '2026-09-15T02:00:00.000Z', blocker: null });
+  expect(verifyChildObservation(child, [], '2026-09-16T00:00:00Z', Date.now()).blocker).toBe('source_observation_missing');
+  rows[0].payload = { ...payload, severity: 90 };
+  expect(verifyChildObservation(child, rows, '2026-09-16T00:00:00Z', Date.parse('2026-10-01')).blocker).toBe('source_observation_payload_changed');
+});
+it('rejects invalid and future observation times', () => {
+  const snapshot = fixture();
+  const child = buildIdentitySplitPackage(snapshot).data.splits[0].children[0];
+  const payload = snapshot.data.report.snapshotData.signals[0];
+  for (const observed_at of ['invalid', '2030-01-01']) {
+    expect(verifyChildObservation(child, [{ payload, observed_at }], '2026-09-16T00:00:00Z', Date.parse('2026-10-01')).blocker)
+      .toBe('source_observation_time_invalid');
+  }
 });

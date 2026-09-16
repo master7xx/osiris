@@ -928,3 +928,13 @@ application must obtain verified observation times rather than substitute discov
 time. There is no apply CLI. Future application must repeat transactional checks
 and account for the cursor advancing after each split; the package's original
 cursor cannot simply be reused for every operation. Parent history remains intact.
+
+The package `check` command also verifies per-child source observation times
+against persisted `signals.observed_at`. It rebuilds each child at the fixed
+snapshot time and compares its payload (independent of JSON object key order)
+with the proposed child. Missing rows, changed payloads and invalid/future times
+are explicit blockers. There is no 48-hour filter for this provenance check:
+older rows still stored can be verified, but deleted rows cannot be reconstructed.
+Successful checks include `observed_at` for each child and remove the timestamp
+requirement from the report; the original package remains unchanged and non-executable.
+Run check again using a new output filename such as `identity-split-times.json`.
