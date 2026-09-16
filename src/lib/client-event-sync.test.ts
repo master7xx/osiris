@@ -86,3 +86,29 @@ describe('cached category continuity', () => {
     expect(third.feed.events.filter(item => item.id === 'b')).toHaveLength(1);
   });
 });
+
+describe('split replacement replay', () => {
+  const child = (id: string, cursor: string) => ({ event_id: id, revision: '1', cursor,
+    payload: { ...event, id }, committed_at: time });
+  const replaced = { ...change('Report A', '4'), payload: { ...event, replaced_by: ['b', 'c'] } };
+  it('publishes the children without the replaced parent only after every delta page succeeds', async () => {
+    const previous = await initial();
+    const result = await synchronizeEvents(previous, queue({ mode: 'durable', version: 1 },
+      { changes: [child('b','2')], collector, cursor: 'p2', has_more: true },
+      { changes: [child('c','3'), replaced], collector, cursor: 'end', has_more: false }).fetcher, signal());
+    expect(result.feed.events.map(e => e.id)).toEqual(['b', 'c']);
+    expect(previous.feed.events.map(e => e.id)).toEqual(['a']);
+    const replayed = await synchronizeEvents(result, queue({ mode: 'durable', version: 1 },
+      { changes: [replaced], collector, cursor: 'end2', has_more: false }).fetcher, signal());
+    expect(replayed.feed.events.map(e => e.id)).toEqual(['b', 'c']);
+  });
+  it('preserves the old checkpoint on interrupted replacement and hides parent during bootstrap', async () => {
+    const previous = await initial();
+    await expect(synchronizeEvents(previous, queue({ mode: 'durable', version: 1 },
+      { changes: [child('b','2')], collector, cursor: 'p2', has_more: true }, 503).fetcher, signal())).rejects.toThrow();
+    expect(previous.feed.events.map(e => e.id)).toEqual(['a']);
+    const result = await synchronizeEvents(null, queue({ mode: 'durable', version: 1 },
+      { events: [{ ...row, payload: replaced.payload }, ...['b','c'].map(id => ({ ...row, id, payload: { ...event,id } }))], collector, cursor: 'end' }).fetcher, signal());
+    expect(result.feed.events.map(e => e.id)).toEqual(['b', 'c']);
+  });
+});

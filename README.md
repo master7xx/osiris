@@ -796,3 +796,183 @@ new signals, fusion time and row ordering can change its results. An empty repor
 does not prove historical conflicts have been resolved. The command refuses more
 than 10,000 signals or 100,000 distinct identities rather than silently truncating
 the analysis; SQL statements have 10-second and lock waits 2-second limits.
+
+### Hazard fusion identity boundaries
+
+Fusion keeps distinct adapter event IDs from the same USGS or GDACS provider
+separate, including when titles, locations or collection URLs match. Updated
+observations with the same adapter ID can still fuse. A cluster cannot bypass
+this boundary via an intervening report from another source. These guards use
+the IDs already present in retained adapter signals; durable identity keys are
+unchanged. Without an exact report match, earthquake fusion now requires known
+positions within 25 km and occurrence times within 15 minutes; title similarity
+alone is insufficient. Cross-source matching remains heuristic, not proof of
+identity. Existing digest/withdrawal and explicit-report rules still apply.
+
+This prevents further grouping of distinct provider events. It does not split
+previously merged database records, reassign identities, delete history or fix
+existing repeated-target conflicts. The read-only identity conflict report may
+therefore show more separate candidates still targeting an old merged record.
+Review those links before any historical reconciliation.
+
+### Dry-run identity reconciliation proposals
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts
+```
+
+Extends the conflict report with `reconciliation` (`mode: dry-run`,
+`executable: false`). For affected stored UUIDs it reads every persisted identity,
+including keys absent from the retained 48-hour signals. Verified adapter IDs
+(USGS ID or GDACS type + numeric event ID) group repeated observations. Distinct
+IDs from one provider can produce `propose_split_for_review` only if every stored
+key maps unambiguously to a retained provider ID. Missing historical observations,
+shared keys, synthetic GDACS IDs and cross-provider correspondence block proposals.
+News conflicts remain manual review. These rules do not prove physical-event
+identity; source semantics and historical payloads still require review.
+
+Partitions expose public provider event IDs and hashed identity keys. Proposed
+moves use stable `new-event:` symbolic references, not allocated UUIDs. The
+original event/history would need preservation with explicit supersession; no
+apply CLI is exposed by this report. The plan
+includes snapshot epoch/cursor and expected event revisions for future validation,
+but it must never be applied against a changed snapshot. At most 100,000 stored
+identity links are inspected; exceeding the bound fails rather than truncates.
+No migrations, collection, camera changes, retention or cleanup run.
+
+### Reviewed split implementation
+
+The dry-run now includes source titles, times and coordinates for each partition,
+and the current parent plus up to three latest historical revision summaries.
+This is a limited review aid, not a complete historical audit. `payload_hash`
+identifies the current parent payload, including changes that do not bump revision.
+
+`applyReviewedSplit` is the single-parent transaction wrapper. The explicit package
+CLI reuses its transactional core; no API or collector applies repairs. It accepts reviewed child payloads/identity partitions
+and an exact document checksum. A checksum is not authorization or proof that
+source matching is correct. Dry-run proposals are not accepted as executable input.
+No production records have been split by this work.
+
+The primitive locks replay metadata and requires the reviewed epoch, cursor,
+parent revision/payload hash, complete disjoint identity coverage and no active
+collector lease. It creates children, moves identities, appends the parent's
+`replaced_by` revision, and commits the cursor and operation receipt together.
+Failures roll back all writes. Identical operation IDs/documents return the prior
+result; changed reuse is rejected. Original evidence and all historical revisions
+remain. Current durable feeds hide `replaced_by` parents; raw storage/replay still
+contains them. Browser synchronization publishes all pages as one checkpoint and
+also hides replaced parents during bootstrap. Camera behavior is unchanged.
+
+Before enabling application: review source semantics and full relevant history,
+construct reviewed child payloads, stop the collector, verify a fresh snapshot,
+and validate the apply workflow in PostgreSQL CI. Use the explicit package workflow
+below; `tools/identity-reconciliation-plan.ts` remains read-only.
+
+Reconciliation proposals also include `pair_reviews` for nearby hazard reports,
+including pairs attached to different historical parents. Earthquake reports
+within 25 km / 15 minutes and wildfire reports within 25 km / 24 hours require
+manual review; these are conservative screening thresholds, not proof of a
+shared event. Possible USGS/GDACS confirmations are identified without merging
+or separating their evidence. Any affected group has no proposed identity moves
+until reviewed. Missing coordinates cannot establish proximity, and an empty
+pair review is not approval to execute a split. This remains a read-only report.
+
+### Fixed reconciliation snapshot
+
+Export once while PostgreSQL is reachable; the web server and collector need not
+be running. Pass earlier reports to preserve their affected event IDs even when
+observations have left the 48-hour window. The export uses a single repeatable-read,
+read-only transaction and includes retained analysis inputs, all identity links
+for affected parents, current parent payloads and their full revision history.
+It cannot recover observations already unavailable in the analysis window.
+Limits (10,000 signals / 100,000 links / 100,000 revisions) fail the export instead
+of silently truncating it. The snapshot is local diagnostic data, not a DB backup;
+it contains source text and URLs, so share the generated review rather than the snapshot.
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-snapshot.ts export identity-snapshot.json identity-reconciliation-review.json identity-reconciliation-review-v2.json
+node --import tsx tools/identity-reconciliation-snapshot.ts replay identity-review-fixed.json identity-snapshot.json
+```
+
+Both commands write UTF-8 directly and refuse to overwrite an existing output.
+Replay requires no database connection and uses the frozen inputs without current
+time. It verifies the format, algorithm version and checksum. Missing parent
+identity links appear in `unresolved_event_ids`; missing observations remain
+blockers. Keep the snapshot with the matching code version. Checksums detect
+accidental modification, not authenticity or authorization. Snapshot export and
+replay do not change database rows.
+
+### Concrete split package and read-only preflight
+
+Use the existing fixed snapshot to build proposed child payloads and exact identity
+moves offline. Blocked groups remain excluded. Child evidence must cover precisely
+its assigned stored identities, with no dropped or overlapping keys. The package
+preserves the parent payload hash, revision, epoch and snapshot cursor.
+
+```powershell
+node --import tsx tools/identity-split-package.ts build identity-snapshot.json identity-split-package.json
+node --env-file=.env.local --import tsx tools/identity-split-package.ts check identity-split-package.json identity-split-check.json
+```
+
+Build needs no database. Check uses a repeatable-read, read-only transaction and
+reports changes to metadata, parent payloads/revisions, identity links or an active
+collector lease. Stop `npm run dev` for a quiet preflight; PostgreSQL must remain
+available. Both commands write UTF-8 and refuse to overwrite existing files.
+Keep the package locally (it contains source evidence); share `identity-split-check.json`,
+which includes proposed titles, locations, times and blockers without raw source URLs.
+
+`database_matches_package` only describes this point-in-time comparison. It is not
+approval or permission to mutate data. Snapshot v1 lacks persisted per-signal
+observation timestamps; proposed children explicitly have `observed_at: null` and
+application must obtain verified observation times rather than substitute discovery
+time. The explicit apply command repeats transactional checks and advances the cursor
+for each split inside one transaction. Parent history remains intact.
+
+The package `check` command also verifies per-child source observation times
+against persisted `signals.observed_at`. It rebuilds each child at the fixed
+snapshot time and compares its payload (independent of JSON object key order)
+with the proposed child. Missing rows, changed payloads and invalid/future times
+are explicit blockers. There is no 48-hour filter for this provenance check:
+older rows still stored can be verified, but deleted rows cannot be reconstructed.
+Successful checks include `observed_at` for each child and remove the timestamp
+requirement from the report; the original package remains unchanged and non-executable.
+Run check again using a new output filename such as `identity-split-times.json`.
+
+
+### Apply and verify an explicitly reviewed package
+
+`apply` is the only CLI mode that mutates the event store. It requires the exact
+reviewed package checksum via `--approve`; do not generate approval by blindly
+copying a checksum from an unreviewed file. The existing package stays unchanged.
+
+Stop the web/collector (`Ctrl+C`), keep PostgreSQL reachable, and use:
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-split-package.ts check identity-split-package.json identity-before-apply.json
+if ($LASTEXITCODE -ne 0) { throw "Preflight failed; do not apply" }
+# Replace REVIEWED_CHECKSUM with the literal checksum from the reviewed report.
+node --env-file=.env.local --import tsx tools/identity-split-package.ts apply identity-split-package.json identity-apply-receipt.json --approve REVIEWED_CHECKSUM
+if ($LASTEXITCODE -ne 0) { throw "Apply failed; keep collector stopped and inspect" }
+node --env-file=.env.local --import tsx tools/identity-split-package.ts verify identity-split-package.json identity-after-apply.json
+if ($LASTEXITCODE -ne 0) { throw "Verification failed; keep collector stopped" }
+npm run dev
+```
+
+All splits and receipts commit together. Metadata is locked; collector and signal
+tables are held against concurrent writes while the source times, payloads, parent
+revisions and identity assignments are checked again. No excluded group is applied.
+Any failure before commit rolls back the entire package. This does not delete old
+parents, evidence or revisions. New UUIDs are allocated only inside application.
+
+A deterministic operation ID and database receipt make retries idempotent. If the
+connection is lost after commit, repeat the same package and literal approval with
+an unused output filename; it returns the stored receipt without writing again.
+Output is reserved before mutation. A disk write failure after commit does not undo
+the database transaction; its receipt remains recoverable by the same retry.
+
+`verify` is read-only and checks the durable receipt, final cursor, parent replacement
+revisions, prior history presence, child content/observation times and exact identity
+assignments. Run it before restarting collection: subsequent collection may change
+current payloads or advance the cursor and will be reported. `check` and `verify`
+exit nonzero when their checks fail. Full rollback/retry and changed-precondition
+scenarios are covered by the PostgreSQL integration suite.

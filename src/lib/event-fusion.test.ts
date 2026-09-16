@@ -127,3 +127,44 @@ describe('event fusion', () => {
     expect(fused[0].confidence).toBe('confirmed');
   });
 });
+
+describe('authoritative hazard identities', () => {
+  const hazard = (source: string, id: string, overrides: Partial<IncomingEvent> = {}) => event({
+    id, category: 'earthquake', title: 'M5.0 earthquake offshore',
+    evidence: [{ source_id: source, source, kind: 'sensor', independent: true, weight: 1,
+      url: 'https://example.test/shared-catalog' }], ...overrides,
+  });
+  it.each([['usgs-earthquakes', 'usgs:'], ['gdacs', 'gdacs:EQ:']])
+  ('keeps different %s IDs separate despite identical text, place, time and URL', (source, prefix) => {
+    const a = hazard(source, `${prefix}1`);
+    const b = hazard(source, `${prefix}2`);
+    expect(shouldFuseEvents(a, b)).toBe(false);
+    expect(shouldFuseEvents(b, a)).toBe(false);
+    expect(fuseEvents([a, b])).toHaveLength(2);
+  });
+  it.each([['usgs-earthquakes', 'usgs:1'], ['gdacs', 'gdacs:EQ:1']])
+  ('retains updates to the same %s event', (source, id) => {
+    const a = hazard(source, id);
+    const b = hazard(source, id, { title: 'Updated earthquake magnitude 5.2', lat: 50.5 });
+    expect(fuseEvents([a, b])).toHaveLength(1);
+  });
+  it('keeps GDACS event types separate even when numeric IDs coincide', () => {
+    expect(shouldFuseEvents(hazard('gdacs', 'gdacs:EQ:1'), hazard('gdacs', 'gdacs:FL:1'))).toBe(false);
+  });
+  it('blocks a cross-source bridge for every ordering of the reports', () => {
+    const a = hazard('usgs-earthquakes', 'usgs:1');
+    const b = hazard('usgs-earthquakes', 'usgs:2');
+    const bridge = hazard('gdacs', 'gdacs:EQ:3');
+    for (const input of [[a,b,bridge], [a,bridge,b], [b,a,bridge], [b,bridge,a], [bridge,a,b], [bridge,b,a]]) {
+      expect(fuseEvents(input)).toHaveLength(2);
+    }
+  });
+  it('requires time and known distance for earthquakes without a shared report', () => {
+    const a = hazard('usgs-earthquakes', 'usgs:1', { evidence: [] });
+    const b = hazard('gdacs', 'gdacs:EQ:1', { evidence: [] });
+    expect(shouldFuseEvents(a,b)).toBe(true);
+    expect(shouldFuseEvents(a,{ ...b, lat: -30 })).toBe(false);
+    expect(shouldFuseEvents(a,{ ...b, lat: undefined, lng: undefined })).toBe(false);
+    expect(shouldFuseEvents(a,{ ...b, occurred_at: '2026-09-12T07:00:00Z' })).toBe(false);
+  });
+});

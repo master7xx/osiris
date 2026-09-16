@@ -21,7 +21,7 @@ export async function readDurableUnifiedFeed(): Promise<UnifiedEventFeed> {
       changed_at: new Date(row.changed_at).toISOString(), update_count: sequence(row.revision) - 1, change_sequence: sequence(row.cursor),
       age_minutes: Math.max(0, Math.floor((Date.now() - Date.parse(event.occurred_at)) / 60000)) };
   });
-  const events = currentEventReports(all.filter(event => Date.now() - Date.parse(event.last_observed_at) <= 48 * 60 * 60 * 1000), Date.now()).sort((a, b) => b.priority_score - a.priority_score).slice(0, 300);
+  const events = currentEventReports(all.filter(event => !event.replaced_by?.length && Date.now() - Date.parse(event.last_observed_at) <= 48 * 60 * 60 * 1000), Date.now()).sort((a, b) => b.priority_score - a.priority_score).slice(0, 300);
   const health = snapshot.collector.source_health as EventSourceHealth[];
   const categories: UnifiedEventFeed['categories'] = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;

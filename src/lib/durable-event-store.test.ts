@@ -1,3 +1,7 @@
+import { applyIdentityPackage, verifyIdentityPackage } from './apply-identity-package';
+import { buildIdentitySplitPackage, checkIdentitySplitPackage } from './identity-split-package';
+import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
+import { applyReviewedSplit, splitReviewHash, splitPayloadHash, type ReviewedSplit } from './reviewed-event-split';
 import { identityConflictReport } from './identity-conflict-report';
 import { eventStoreStatus } from './event-store-status';
 import { beforeAll, beforeEach, afterAll, describe, it, expect, vi } from 'vitest';
@@ -149,6 +153,166 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(report.cursor).toBe('2');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
     expect((await pool.query('SELECT count(*) FROM osiris_events.signals')).rows[0].count).toBe('1');
+  });
+
+  it('dry-runs split proposals and blocks missing historical identities without writes', async () => {
+    const evidence = (id: string) => ({ source_id: 'usgs-earthquakes', source: 'USGS', kind: 'sensor' as const, independent: true, weight: 1, url: `https://example.org/${id}` });
+    const a = event({ id: 'usgs:a', evidence: [evidence('a')] });
+    const b = event({ id: 'usgs:b', lat: 40, lng: 100, evidence: [evidence('b')] });
+    const merged = { ...a, evidence: [...a.evidence, ...b.evidence] };
+    const result = await store.commitBatch(randomUUID(), [{ event: merged, identities: collectorIdentities(merged), expectedRevision: null }]);
+    await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2),($3,$4)', ['a', JSON.stringify(a), 'b', JSON.stringify(b)]);
+    const before = await new DurableEventReader(pool).bootstrap();
+    const report = await identityConflictReport(pool, true);
+    expect(report.reconciliation?.executable).toBe(false);
+    expect(report.reconciliation?.groups[0].action).toBe('propose_split_for_review');
+    expect(report.reconciliation?.groups[0].partitions).toHaveLength(2);
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify({ ...b, lat: a.lat, lng: a.lng }), 'b']);
+    const nearby = await identityConflictReport(pool, true);
+    expect(nearby.reconciliation?.groups[0].blockers).toContain('nearby_provider_events_require_review');
+    expect(nearby.reconciliation?.groups[0].proposed_changes).toBeNull();
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify(b), 'b']);
+    const captured = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    const snapshot = createIdentitySnapshot(captured);
+    const replay = replayIdentitySnapshot(snapshot);
+    const pkg = buildIdentitySplitPackage(snapshot);
+    expect(pkg.data.splits).toHaveLength(1);
+    expect(pkg.data.splits[0].children).toHaveLength(2);
+    const check = await checkIdentitySplitPackage(pool, pkg);
+    expect(check.database_matches_package).toBe(true);
+    expect(check.executable).toBe(false);
+    expect(check.groups[0].children.every(c => c.observed_at !== null && c.observation_blocker === null)).toBe(true);
+    expect(check.application_requirements).not.toContain('verified_source_observation_times');
+    expect(replay.reconciliation.groups).toEqual(captured.reconciliation?.groups);
+    expect(captured.snapshotData?.history).toHaveLength(1);
+    await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");
+    const expired = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    expect(expired.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(replayIdentitySnapshot(snapshot)).toEqual(replay);
+    await pool.query('UPDATE osiris_events.signals SET observed_at=clock_timestamp()');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    await pool.query('INSERT INTO osiris_events.identities (source_id,upstream_id,event_id) VALUES ($1,$2,$3)', ['usgs-earthquakes', 'expired', result.events[0].id]);
+    const changedCheck = await checkIdentitySplitPackage(pool, pkg);
+    expect(changedCheck.groups[0].blockers).toContain('identities_changed');
+    const blocked = await identityConflictReport(pool, true);
+    expect(blocked.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(blocked.reconciliation?.groups[0].proposed_changes).toBeNull();
+    expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('3');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+  });
+
+  async function packageFixture() {
+    const signals = [0, 1, 2, 3].map(i => event({ id: `usgs:package${i}`, title: `Package child ${i}`,
+      lat: [-50, -10, 30, 70][i], lng: i * 30,
+      evidence: [{ source_id: 'usgs-earthquakes', source: 'USGS', kind: 'sensor', independent: true, weight: 1, url: `https://example.org/package${i}` }] }));
+    for (const i of [0, 2]) {
+      const merged = { ...signals[i], evidence: [...signals[i].evidence, ...signals[i + 1].evidence] };
+      await store.commitBatch(randomUUID(), [{ event: merged, identities: collectorIdentities(merged), expectedRevision: null }]);
+    }
+    for (const signal of signals) await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', [signal.id, JSON.stringify(signal)]);
+    const snapshot = createIdentitySnapshot(await identityConflictReport(pool, true, { previousIds: [] }));
+    return buildIdentitySplitPackage(snapshot);
+  }
+
+  it('applies a whole package once and verifies history, identities and replay', async () => {
+    const pkg = await packageFixture();
+    expect(pkg.data.splits).toHaveLength(2);
+    const result = await applyIdentityPackage(pool, pkg, pkg.checksum);
+    expect(result.groups).toHaveLength(2);
+    expect(BigInt(result.final_cursor) - BigInt(result.initial_cursor)).toBe(BigInt(6));
+    expect((await verifyIdentityPackage(pool, pkg)).verified).toBe(true);
+    expect(await applyIdentityPackage(pool, pkg, pkg.checksum)).toEqual(result);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.events')).rows[0].count).toBe('6');
+  });
+
+  it('rolls back earlier splits when the last group fails', async () => {
+    const pkg = await packageFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    const title = pkg.data.splits[1].children[1].event.title;
+    // Test fixture uses a generated constant, never external input in SQL.
+    if (!/^Package child [0-3]$/.test(title)) throw new Error('Unexpected test title');
+    await pool.query(`ALTER TABLE osiris_events.events ADD CONSTRAINT reject_package_test CHECK (payload->>'title' <> '${title}')`);
+    try {
+      await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow();
+      expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+      expect((await pool.query("SELECT count(*) FROM osiris_events.batches WHERE input_hash LIKE 'package:%' OR input_hash LIKE 'split:%'")).rows[0].count).toBe('0');
+      expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('4');
+    } finally { await pool.query('ALTER TABLE osiris_events.events DROP CONSTRAINT reject_package_test'); }
+    expect((await applyIdentityPackage(pool, pkg, pkg.checksum)).groups).toHaveLength(2);
+  });
+
+  it('rejects wrong approval, a running collector and changed provenance without writes', async () => {
+    const pkg = await packageFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    await expect(applyIdentityPackage(pool, pkg, 'incorrect')).rejects.toThrow('checksum');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    const lease = await acquireCollectorLease(pool, randomUUID());
+    await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
+    await releaseCollectorLease(pool, lease!);
+    const afterLease = await new DurableEventReader(pool).bootstrap();
+    await pool.query("UPDATE osiris_events.signals SET payload=jsonb_set(payload,'{severity}','99'::jsonb)");
+    await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(afterLease);
+  });
+
+  async function splitFixture() {
+    const a = write();
+    a.identities = collectorIdentities(a.event);
+    const b = write({ title: 'Separate earthquake', evidence: [{ ...a.event.evidence[0], url: 'https://example.org/quake/2' }] });
+    b.identities = collectorIdentities(b.event);
+    const parentEvent = { ...a.event, evidence: [...a.event.evidence, ...b.event.evidence] };
+    const result = await store.commitBatch(randomUUID(), [{ event: parentEvent, identities: [...a.identities, ...b.identities], expectedRevision: null }]);
+    const parent = (await pool.query('SELECT payload FROM osiris_events.events WHERE id=$1', [result.events[0].id])).rows[0];
+    const plan: ReviewedSplit = { operation_id: randomUUID(), epoch: result.epoch, cursor: result.cursor,
+      parent_id: result.events[0].id, parent_revision: '1', parent_payload_hash: splitPayloadHash(parent.payload),
+      children: [a,b].map(w => ({ event: w.event, identities: w.identities, observed_at: '2026-09-12T08:00:00Z' })) };
+    return plan;
+  }
+  it('atomically splits reviewed identities, retains history and replays replacement idempotently', async () => {
+    const plan = await splitFixture();
+    const reader = new DurableEventReader(pool);
+    const before = await reader.bootstrap();
+    const result = await applyReviewedSplit(pool, plan, splitReviewHash(plan));
+    expect(result.child_ids).toHaveLength(2);
+    expect(result.cursor).toBe('4');
+    expect(await applyReviewedSplit(pool, plan, splitReviewHash(plan))).toEqual(result);
+    const after = await reader.bootstrap();
+    expect(after.events).toHaveLength(3);
+    expect(after.events.find(e => e.id === plan.parent_id).payload.replaced_by).toEqual(result.child_ids);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('4');
+    expect((await pool.query('SELECT count(*) FROM osiris_events.evidence WHERE event_id=$1', [plan.parent_id])).rows[0].count).toBe('2');
+    const changed = await reader.changes(before.cursor);
+    expect(changed.changes).toHaveLength(3);
+    expect(changed.changes[2].payload.replaced_by).toEqual(result.child_ids);
+    expect((await pool.query('SELECT DISTINCT event_id FROM osiris_events.identities')).rows.map(r => r.event_id).sort()).toEqual([...result.child_ids].sort());
+    const changedPlan = { ...plan, parent_revision: '2' };
+    await expect(applyReviewedSplit(pool, changedPlan, splitReviewHash(changedPlan))).rejects.toThrow('reused');
+  });
+  it('rejects changed approval, snapshot, parent payload, identities and active collector', async () => {
+    const plan = await splitFixture();
+    const before = await new DurableEventReader(pool).bootstrap();
+    await expect(applyReviewedSplit(pool, plan, 'wrong')).rejects.toThrow('review changed');
+    for (const altered of [{ ...plan, cursor: '0' }, { ...plan, parent_payload_hash: 'changed' },
+      { ...plan, children: [plan.children[0], { ...plan.children[1], identities: plan.children[0].identities }] }]) {
+      await expect(applyReviewedSplit(pool, altered, splitReviewHash(altered))).rejects.toThrow();
+    }
+    const lease = await acquireCollectorLease(pool, randomUUID());
+    await expect(applyReviewedSplit(pool, plan, splitReviewHash(plan))).rejects.toThrow('Stop collector');
+    await releaseCollectorLease(pool, lease!);
+    expect((await new DurableEventReader(pool).bootstrap()).events).toEqual(before.events);
+    expect((await new DurableEventReader(pool).bootstrap()).cursor).toEqual(before.cursor);
+  });
+  it('rolls back children, identities and replay cursor when a later child insert fails', async () => {
+    const plan = await splitFixture();
+    plan.children[1].event.title = 'reject split test';
+    const before = await new DurableEventReader(pool).bootstrap();
+    await pool.query(`ALTER TABLE osiris_events.events ADD CONSTRAINT reject_split_test CHECK (payload->>'title' <> 'reject split test')`);
+    try {
+      await expect(applyReviewedSplit(pool, plan, splitReviewHash(plan))).rejects.toThrow();
+      expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+      expect((await pool.query('SELECT count(*) FROM osiris_events.identities WHERE event_id=$1', [plan.parent_id])).rows[0].count).toBe('2');
+      expect((await pool.query('SELECT count(*) FROM osiris_events.batches WHERE id=$1', [plan.operation_id])).rows[0].count).toBe('0');
+    } finally { await pool.query('ALTER TABLE osiris_events.events DROP CONSTRAINT reject_split_test'); }
   });
 
   it('stores distinct bulletins sharing a URL and revises only the corrected serial', async () => {
