@@ -1,3 +1,4 @@
+import { buildIdentitySplitPackage, checkIdentitySplitPackage } from './identity-split-package';
 import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
 import { applyReviewedSplit, splitReviewHash, splitPayloadHash, type ReviewedSplit } from './reviewed-event-split';
 import { identityConflictReport } from './identity-conflict-report';
@@ -173,6 +174,12 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     const captured = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
     const snapshot = createIdentitySnapshot(captured);
     const replay = replayIdentitySnapshot(snapshot);
+    const pkg = buildIdentitySplitPackage(snapshot);
+    expect(pkg.data.splits).toHaveLength(1);
+    expect(pkg.data.splits[0].children).toHaveLength(2);
+    const check = await checkIdentitySplitPackage(pool, pkg);
+    expect(check.database_matches_package).toBe(true);
+    expect(check.executable).toBe(false);
     expect(replay.reconciliation.groups).toEqual(captured.reconciliation?.groups);
     expect(captured.snapshotData?.history).toHaveLength(1);
     await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");
@@ -182,6 +189,8 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.signals SET observed_at=clock_timestamp()');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
     await pool.query('INSERT INTO osiris_events.identities (source_id,upstream_id,event_id) VALUES ($1,$2,$3)', ['usgs-earthquakes', 'expired', result.events[0].id]);
+    const changedCheck = await checkIdentitySplitPackage(pool, pkg);
+    expect(changedCheck.groups[0].blockers).toContain('identities_changed');
     const blocked = await identityConflictReport(pool, true);
     expect(blocked.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
     expect(blocked.reconciliation?.groups[0].proposed_changes).toBeNull();

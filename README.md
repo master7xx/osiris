@@ -901,3 +901,30 @@ identity links appear in `unresolved_event_ids`; missing observations remain
 blockers. Keep the snapshot with the matching code version. Checksums detect
 accidental modification, not authenticity or authorization. No apply command is
 introduced and no database rows are changed.
+
+### Concrete split package and read-only preflight
+
+Use the existing fixed snapshot to build proposed child payloads and exact identity
+moves offline. Blocked groups remain excluded. Child evidence must cover precisely
+its assigned stored identities, with no dropped or overlapping keys. The package
+preserves the parent payload hash, revision, epoch and snapshot cursor.
+
+```powershell
+node --import tsx tools/identity-split-package.ts build identity-snapshot.json identity-split-package.json
+node --env-file=.env.local --import tsx tools/identity-split-package.ts check identity-split-package.json identity-split-check.json
+```
+
+Build needs no database. Check uses a repeatable-read, read-only transaction and
+reports changes to metadata, parent payloads/revisions, identity links or an active
+collector lease. Stop `npm run dev` for a quiet preflight; PostgreSQL must remain
+available. Both commands write UTF-8 and refuse to overwrite existing files.
+Keep the package locally (it contains source evidence); share `identity-split-check.json`,
+which includes proposed titles, locations, times and blockers without raw source URLs.
+
+`database_matches_package` only describes this point-in-time comparison. It is not
+approval or permission to mutate data. Snapshot v1 lacks persisted per-signal
+observation timestamps; proposed children explicitly have `observed_at: null` and
+application must obtain verified observation times rather than substitute discovery
+time. There is no apply CLI. Future application must repeat transactional checks
+and account for the cursor advancing after each split; the package's original
+cursor cannot simply be reused for every operation. Parent history remains intact.

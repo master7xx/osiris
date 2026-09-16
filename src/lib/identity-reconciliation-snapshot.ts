@@ -37,3 +37,9 @@ export function replayIdentitySnapshot(value: unknown) {
         'Requested events with no stored identity links remain unresolved; absence is not resolution.',
         'Checksum detects accidental changes; it does not authorize applying this plan.'] } };
 }
+
+/** Validated private inputs for offline tooling; never returned in the shareable report. */
+export function identitySnapshotInputs(value: unknown) {
+  replayIdentitySnapshot(value);
+  return (value as ReturnType<typeof createIdentitySnapshot>).data.report as Report;
+}
