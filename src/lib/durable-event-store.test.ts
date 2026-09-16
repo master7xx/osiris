@@ -245,12 +245,14 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     const pkg = await packageFixture();
     const before = await new DurableEventReader(pool).bootstrap();
     await expect(applyIdentityPackage(pool, pkg, 'incorrect')).rejects.toThrow('checksum');
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
     const lease = await acquireCollectorLease(pool, randomUUID());
     await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
     await releaseCollectorLease(pool, lease!);
+    const afterLease = await new DurableEventReader(pool).bootstrap();
     await pool.query("UPDATE osiris_events.signals SET payload=jsonb_set(payload,'{severity}','99'::jsonb)");
     await expect(applyIdentityPackage(pool, pkg, pkg.checksum)).rejects.toThrow('preconditions');
-    expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
+    expect(await new DurableEventReader(pool).bootstrap()).toEqual(afterLease);
   });
 
   async function splitFixture() {
