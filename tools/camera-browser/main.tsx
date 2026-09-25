@@ -12,7 +12,7 @@ function Harness() {
   const shell = new URLSearchParams(location.search).has('shell');
   const content = <><button onClick={() => setSelected(0)}>Open camera</button><button onClick={() => setSelected(5)}>Switch camera</button>
     <div style={{ width: 176, height: 99 }} data-testid="overview"><CameraMedia camera={cameras[0]} overview /></div>
-    <CameraViewer camera={selected === null ? null : cameras[selected]} cameras={cameras} onClose={() => setSelected(null)} />
+    <CameraViewer camera={selected === null ? null : cameras[selected]} cameras={cameras} onSelect={camera => setSelected(cameras.findIndex(c => c.id === camera.id))} onClose={() => setSelected(null)} />
   </>;
   return shell ? <WorldEventsProvider onMapSelect={() => {}}><DashboardShell mobile={false} navigationVisible onShowNavigation={() => {}} navigation={() => <div>Layers</div>} news={<div>World events fixture</div>} status={null} search={null}>{content}</DashboardShell></WorldEventsProvider> : content;
 }

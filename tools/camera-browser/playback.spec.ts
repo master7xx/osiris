@@ -94,3 +94,27 @@ test('failed snapshots have one compact badge without broken-image text', async 
   await expect(tile.getByRole('status')).toHaveCount(1);
   await page.screenshot({ path: 'test-results/camera-failed-snapshot.png' });
 });
+
+test('neighbor selection promotes the camera and preserves expanded mode', async ({ page }) => {
+  await page.route('**/jamcams.tfl.gov.uk/*.mp4*', route => route.fulfill({ contentType: 'video/mp4', body: clip }));
+  await page.route('**/media/*.jpg', route => route.fulfill({ contentType: 'image/png', body: image }));
+  await page.route('**/api/cctv/diagnostics?*', route => route.fulfill({ json: { checks: [] } }));
+  await page.goto('/tools/camera-browser/');
+  await page.getByRole('button', { name: 'Open camera', exact: true }).click();
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  const area = page.getByRole('region', { name: 'Camera viewing area' });
+  for (const id of [1, 2, 3, 2]) {
+    await page.getByRole('button', { name: `Show Camera ${id} as main camera`, exact: true }).click();
+    await expect(area.locator('h2')).toHaveText(`Camera ${id}`);
+    await expect(area).toHaveAttribute('data-expanded', 'true');
+    await expect(area.locator('video')).toHaveCount(4);
+    await expect(area.locator('video').first()).toHaveAttribute('src', new RegExp(`/${id}\\.mp4`));
+    await expect(area.getByRole('button', { name: `Show Camera ${id} as main camera`, exact: true })).toHaveCount(0);
+  }
+  // Restore the map selection controls and repeat the same camera selection.
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Open camera', exact: true }).click();
+  await expect(area.locator('h2')).toHaveText('Camera 0');
+  await expect(area.locator('video')).toHaveCount(4);
+  await page.screenshot({ path: 'test-results/camera-neighbor-selection.png' });
+});
