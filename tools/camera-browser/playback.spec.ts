@@ -59,15 +59,17 @@ test('camera stays inside real dashboard workspace with news open, closed and ex
     expect(panel.x + panel.width).toBeLessThanOrEqual(workspace.x + workspace.width);
     expect(panel.y).toBeGreaterThanOrEqual(workspace.y);
     expect(panel.y + panel.height).toBeLessThanOrEqual(workspace.y + workspace.height);
-    const news = await page.locator('#dashboard-news').boundingBox();
+    const news = await page.locator('#dashboard-news').count() ? await page.locator('#dashboard-news').boundingBox() : null;
     if (news) expect(panel.x + panel.width).toBeLessThanOrEqual(news.x);
     await expect(page.getByRole('button', { name: 'Close cameras' })).toBeInViewport();
   };
   await withinWorkspace();
   await page.screenshot({ path: 'test-results/camera-dashboard-open.png' });
   await page.getByRole('button', { name: 'Close news panel' }).click();
+  await expect(page.locator('#dashboard-news')).toHaveCount(0);
   await withinWorkspace();
   await page.getByRole('button', { name: 'Show news panel', exact: true }).click();
+  await expect(page.locator('#dashboard-news')).toBeVisible();
   await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
   await withinWorkspace();
   await page.screenshot({ path: 'test-results/camera-dashboard-expanded.png' });
