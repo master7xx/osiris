@@ -1,3 +1,4 @@
+import { lookupCollectorIdentities } from '../src/lib/collector-identity-lookup';
 import { recordCollectorOutcome } from '../src/lib/collector-outcome';
 import type { EventSourceHealth } from '../src/lib/event-sources';
 import { batches, observationIndex, collectorIdentities } from '../src/lib/collector-observations';
@@ -51,18 +52,22 @@ try {
         const observedAt = observationIndex(signalRows);
         const signals = signalRows.map(row => row.payload as IncomingEvent);
         const fused = fuseEvents(signals, { now: Date.now(), limit: signals.length });
+        const identityGroups = fused.map(collectorIdentities);
+        const storedMatches = await lookupCollectorIdentities(pool, identityGroups, async () => {
+          const renewed = await acquireCollectorLease(pool, owner);
+          if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
+        });
         const writes: EventWrite[] = [];
         const seen = new Set<string>();
         let conflicts = 0;
         let prepared = 0;
-        for (const event of fused) {
+        for (const [position, event] of fused.entries()) {
           if (prepared++ % 100 === 0) {
             const renewed = await acquireCollectorLease(pool, owner);
             if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
           }
-          const identities = collectorIdentities(event);
-          const rows = (await pool.query(`SELECT DISTINCT e.id,e.revision FROM osiris_events.events e JOIN osiris_events.identities i ON i.event_id=e.id
-            WHERE (i.source_id,i.upstream_id) IN (SELECT * FROM unnest($1::text[],$2::text[]))`, [identities.map(id => id.sourceId), identities.map(id => id.upstreamId)])).rows;
+          const identities = identityGroups[position];
+          const rows = storedMatches[position];
           if (rows.length > 1 || rows[0] && seen.has(rows[0].id)) { conflicts++; continue; }
           if (rows[0]) seen.add(rows[0].id);
           writes.push({ identities, event, observedAt: observedAt(event), expectedRevision: rows[0]?.revision ?? null });
