@@ -1759,6 +1759,7 @@ export default function Dashboard() {
       {/* ── Camera Viewer ── */}
       <CameraViewer
         camera={activeCamera}
+        cameras={data.cameras || []}
         onClose={() => setActiveCamera(null)}
         onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })}
       />

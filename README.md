@@ -1031,3 +1031,47 @@ as current availability. Refresh failures preserve the last feed and appear in b
 views; a successful refresh clears the failure. Last-success timestamps include the
 full UTC date as well as time. This is freshness of the feed, not a per-source heartbeat
 or proof that a collector process is running.
+
+### Camera overview, playback and diagnostics
+
+Map camera previews show snapshots only; a source without a published still stays
+as a clickable marker. The overview uses the provider URL and browser HTTP cache,
+without a new persistent image cache or periodic image downloads. Opening a camera
+starts a separate viewing panel: the selected camera plus up to three nearest
+published video feeds within 2 km. Other map cameras do not start streaming.
+
+Media loads directly in the browser. No video recording, server video cache or
+new media relay is introduced. Existing image proxies remain unchanged. Closing
+or switching the panel releases media elements/HLS decoders; hiding the browser
+tab unmounts media sessions. Video controls allow manual playback when autoplay
+is refused. TfL now reads `videoUrl` as an MP4 clip and retains `imageUrl` for the
+map. Clips reload every five minutes and are labelled CLIP, not LIVE; snapshots
+in the active panel refresh every 30 seconds. These are request intervals, not
+claims about provider capture frequency. Only verified TfL URLs receive a cache
+buster; other providers retain their original URLs and HTTP cache semantics.
+
+A top-right overlay distinguishes client playback, image load, buffering and
+media errors from the last SERVER HEAD result. An iframe loading is not proof
+that its embedded player is playing. HTTP 200 does not prove a current picture;
+media errors are not fabricated HTTP statuses. Sources that cannot play directly
+may still be opened using their source link.
+
+`GET /api/cctv/diagnostics?id=...` accepts up to eight catalog camera IDs, never
+user-supplied target URLs. Camera catalog responses register HTTPS targets for
+one hour. Demand-driven checks are shared within a server process, at most two
+concurrent probes and one start per provider per five seconds, with a five-minute
+successful-result TTL, exponential failure backoff and provider-wide Retry-After
+for 429/503. HEAD-only probes do not download video bodies; unsupported HEAD is
+explicitly inconclusive. Existing SSRF validation checks public addresses and
+redirects. Client panels poll metadata every 30 seconds while visible; no probes
+run without demand. Server metadata never gates playback.
+
+This diagnostic cache/scheduler is process-local, bounded to 60,000 catalog
+entries, and is lost on restart. A cold process or a different replica reports
+UNKNOWN until its catalog is loaded. Multi-replica deployments need a shared
+scheduler before treating the provider limits as deployment-wide guarantees.
+
+Camera browser regression checks: `npm run test:camera-browser` (installed Google
+Chrome required). CI uses a local synthetic MP4 fixture and mocked diagnostics,
+covering snapshot-only overview, four-player selection, clip refresh, errors and
+visibility/close cleanup. These tests do not certify live provider availability.

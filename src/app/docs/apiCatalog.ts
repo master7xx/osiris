@@ -277,6 +277,14 @@ export const API_GROUPS: ApiGroup[] = [
         returns: ['cameras', 'regions', 'total', 'timestamp'],
       },
       {
+        path: '/api/cctv/diagnostics',
+        method: 'GET',
+        summary: 'Cached server HEAD observations for catalog cameras; never gates client playback.',
+        params: [{ name: 'id', required: true, desc: 'One to eight camera IDs; repeat the parameter.' }],
+        returns: ['checks'],
+        notes: 'Process-local, demand-driven checks with provider rate limits. HTTP success does not verify playback or freshness.',
+      },
+      {
         path: '/api/cctv/stream-status',
         method: 'GET',
         summary: 'Probes whether a camera stream is reachable before the player commits to it.',
