@@ -13,7 +13,7 @@ test('overview stays still; selected area plays four clips and releases them on 
   await page.getByRole('button', { name: 'Open camera', exact: true }).click();
   await expect(page.locator('video')).toHaveCount(4);
   await expect(page.getByText('CLIP · PLAYING', { exact: true })).toHaveCount(4);
-  await expect(page.getByRole('region', { name: 'Camera viewing area' })).toContainText('SERVER HTTP 404');
+  await expect(page.getByRole('region', { name: 'Camera viewing area' }).getByRole('status').first()).toHaveAttribute('title', /SERVER HTTP 404/);
   await page.screenshot({ path: 'test-results/camera-desktop.png' });
   await page.getByRole('button', { name: 'Switch camera', exact: true }).click();
   await expect(page.locator('h2')).toHaveText('Camera 5');
@@ -42,4 +42,48 @@ test('clips refresh; media errors stay visible without inventing HTTP status', a
   await expect(page.getByText('CLIP · NETWORK', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Camera viewing area' })).not.toContainText('502');
   await expect(page.locator('video')).toHaveCount(4);
+});
+
+test('camera stays inside real dashboard workspace with news open, closed and expanded', async ({ page }) => {
+  await page.route('**/jamcams.tfl.gov.uk/*.mp4*', route => route.fulfill({ contentType: 'video/mp4', body: clip }));
+  await page.route('**/media/*.jpg', route => route.fulfill({ contentType: 'image/png', body: image }));
+  await page.route('**/api/**', route => route.fulfill({ json: { checks: [], events: [], source_health: [], generated_at: new Date().toISOString(), source_count: 0, healthy_sources: 0 } }));
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.goto('/tools/camera-browser/?shell');
+  await page.getByRole('button', { name: 'Open camera', exact: true }).click();
+  const camera = page.getByRole('region', { name: 'Camera viewing area' });
+  const withinWorkspace = async () => {
+    const panel = (await camera.boundingBox())!;
+    const workspace = (await page.locator('.dashboard-workspace').boundingBox())!;
+    expect(panel.x).toBeGreaterThanOrEqual(workspace.x);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(workspace.x + workspace.width);
+    expect(panel.y).toBeGreaterThanOrEqual(workspace.y);
+    expect(panel.y + panel.height).toBeLessThanOrEqual(workspace.y + workspace.height);
+    const news = await page.locator('#dashboard-news').boundingBox();
+    if (news) expect(panel.x + panel.width).toBeLessThanOrEqual(news.x);
+    await expect(page.getByRole('button', { name: 'Close cameras' })).toBeInViewport();
+  };
+  await withinWorkspace();
+  await page.screenshot({ path: 'test-results/camera-dashboard-open.png' });
+  await page.getByRole('button', { name: 'Close news panel' }).click();
+  await withinWorkspace();
+  await page.getByRole('button', { name: 'Show news panel', exact: true }).click();
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  await withinWorkspace();
+  await page.screenshot({ path: 'test-results/camera-dashboard-expanded.png' });
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await withinWorkspace();
+  await page.screenshot({ path: 'test-results/camera-dashboard-narrow.png' });
+});
+
+test('failed snapshots have one compact badge without broken-image text', async ({ page }) => {
+  await page.route('**/media/*.jpg', route => route.fulfill({ status: 404 }));
+  await page.route('**/api/cctv/diagnostics?*', route => route.fulfill({ json: { checks: [{ state: 'HTTP_ERROR', httpStatus: 404 }] } }));
+  await page.goto('/tools/camera-browser/');
+  const tile = page.getByTestId('overview');
+  await expect(tile.getByRole('status')).toContainText('LOAD FAILED');
+  await expect(tile.locator('img')).toHaveAttribute('alt', '');
+  await expect(tile.locator('img')).toHaveCSS('opacity', '0');
+  await expect(tile.getByRole('status')).toHaveCount(1);
+  await page.screenshot({ path: 'test-results/camera-failed-snapshot.png' });
 });

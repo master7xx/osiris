@@ -45,7 +45,8 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
       } catch { /* Metadata failure never interrupts media. */ }
       if (!controller.signal.aborted) timer = setTimeout(poll, 30000);
     };
-    void poll();
+    // Avoid requests for StrictMode probes and tiles removed during a quick pan.
+    timer = setTimeout(poll, 150);
     return () => { controller.abort(); clearTimeout(timer); };
   }, [camera.id]);
   useEffect(() => {
@@ -90,15 +91,15 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
       onPlaying={() => setState('PLAYING')} onWaiting={() => setState('BUFFERING')} onPause={() => setState('PAUSED')} onError={() => setState(mediaErrorLabel(video.current?.error?.code))} />
       : kind === 'iframe' ? <iframe src={url} title={camera.name || 'Camera'} className="h-full w-full border-0" allow="autoplay; fullscreen" allowFullScreen onLoad={() => setState('EMBED LOADED')} />
       // eslint-disable-next-line @next/next/no-img-element -- provider image; no server media storage
-      : <img key={revision} src={clipUrl(url, revision)} alt={camera.name || 'Camera'} className="h-full w-full object-contain" onLoad={() => setState('LOADED')} onError={() => setState('LOAD FAILED')} />)}
+      : <img key={revision} src={clipUrl(url, revision)} alt="" aria-label={camera.name || 'Camera'} className={`h-full w-full object-contain ${failed ? 'opacity-0' : ''}`} onLoad={() => setState('LOADED')} onError={() => setState('LOAD FAILED')} />)}
     {!overview && failed && snapshot && ['mp4', 'hls'].includes(kind) && <>
       {/* eslint-disable-next-line @next/next/no-img-element -- fallback still from provider */}
       <img src={snapshot} alt="Source snapshot fallback" className="pointer-events-none absolute inset-0 h-full w-full object-contain" />
       <span className="absolute bottom-1 left-1 bg-black/80 text-[9px] text-sky-300">SNAPSHOT FALLBACK · FRESHNESS UNVERIFIED</span>
     </>}
-    <div className={`absolute right-1 top-1 z-30 max-w-[95%] bg-black/85 px-1.5 py-1 text-[9px] font-mono ${color}`} role="status">
-      <div>{format} · {label}</div>
-      {check && <div className={check.httpStatus && check.httpStatus >= 400 ? 'text-amber-300' : 'text-white/65'} title={`Server HEAD check: ${check.checkedAt || 'not checked'}. Does not verify playback or capture time.`}>SERVER {check.httpStatus ? `HTTP ${check.httpStatus}` : check.state}{check.checkedAt ? ` · ${new Date(check.checkedAt).toISOString().slice(11, 19)}Z` : ''}</div>}
+    <div className={`absolute right-1 top-1 z-30 max-w-[95%] truncate rounded-sm bg-black/75 px-1.5 py-0.5 text-[9px] font-mono ${color}`} role="status"
+      title={`${format} · ${label}\n${check ? `SERVER ${check.httpStatus ? `HTTP ${check.httpStatus}` : check.state} · ${check.checkedAt || 'not checked'}` : 'Server check pending'}\nServer HEAD does not verify playback or capture time.`}>
+      {format} · {label}{failed && check?.httpStatus && check.httpStatus >= 400 ? ` · SERVER ${check.httpStatus}` : ''}
     </div>
     {!overview && camera.external_url && <a href={camera.external_url} target="_blank" rel="noopener noreferrer" className="absolute bottom-9 left-2 z-30 bg-black/80 px-2 text-xs text-sky-300">Open source</a>}
     {!overview && (failed || label === 'TIMEOUT') && <button className="absolute bottom-9 right-2 z-30 bg-black/80 px-2 text-xs" onClick={() => { setState('CONNECTING'); setRevision(Date.now()); }}>Retry</button>}

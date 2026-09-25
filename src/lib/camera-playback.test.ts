@@ -12,6 +12,9 @@ describe('client camera selection', () => {
     const cameras = Array.from({ length: 6 }, (_, n) => ({ id: String(n), lat: n / 1000, lng: -179.999, stream_type: 'hls', stream_url: 'https://x/live' }));
     expect(nearbyCameras(selected, [...cameras, cameras[0], { ...cameras[0], id: 'far', lat: 30 }, { ...cameras[0], ...selected }]).map(c => c.id)).toEqual(['0', '1', '2']);
   });
+  it('does not automatically embed neighboring provider web pages', () => {
+    expect(nearbyCameras({ id: 'selected', lat: 0, lng: 0 }, [{ id: 'page', lat: 0, lng: 0, stream_type: 'iframe', stream_url: 'https://provider.example/camera-page' }])).toEqual([]);
+  });
   it('preserves signed URLs and separates media errors from HTTP codes', () => {
     expect(clipUrl('https://x/clip.mp4?token=secret', 123)).toBe('https://x/clip.mp4?token=secret');
     expect(clipUrl('https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/1.mp4', 123)).toContain('_osiris=123');
