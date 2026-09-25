@@ -1,3 +1,5 @@
+import { recordCollectorOutcome } from '../src/lib/collector-outcome';
+import type { EventSourceHealth } from '../src/lib/event-sources';
 import { batches, observationIndex, collectorIdentities } from '../src/lib/collector-observations';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
@@ -20,8 +22,10 @@ try {
   while (!stop.signal.aborted) {
     const lease = await acquireCollectorLease(pool, owner).catch(error => { console.error('Lease acquisition failed:', error instanceof Error ? error.message : 'Database unavailable'); failures++; return null; });
     if (lease) {
+      let sourceHealth: EventSourceHealth[] | undefined;
       try {
         const [core, extra] = await Promise.all([collectEventSources(), collectSupplementalEventSignals()]);
+        sourceHealth = [...core.health, ...extra.health];
         if (stop.signal.aborted) break;
         if (core.healthy_sources + extra.healthy_sources === 0) throw new Error('All event sources unavailable');
         // Persist successful observations; absent sources cannot erase prior signals.
@@ -69,13 +73,15 @@ try {
           if (!renewed || renewed.generation !== lease.generation) throw new Error('Collector ownership changed');
           await store.commitBatch(randomUUID(), batch, lease);
         }
-        await pool.query('UPDATE osiris_events.collector SET last_success_at=clock_timestamp(),last_error=$4,source_health=$3 WHERE owner=$1 AND generation=$2', [owner, lease.generation, JSON.stringify([...core.health, ...extra.health]), conflicts ? `${conflicts} candidates skipped: identity reconciliation required` : null]);
+        const recorded = await recordCollectorOutcome(pool, lease, { success: true, health: sourceHealth,
+          error: conflicts ? `${conflicts} candidates skipped: identity reconciliation required` : null });
+        if (!recorded) throw new Error('Collector ownership changed');
         failures = 0; console.log(`Committed ${writes.length} events`);
       } catch (error) {
         failures++;
         const message = error instanceof Error ? error.message : 'Collection failed';
         console.error(message);
-        await pool.query('UPDATE osiris_events.collector SET last_error=$3 WHERE owner=$1 AND generation=$2', [owner, lease.generation, message]).catch(() => {});
+        await recordCollectorOutcome(pool, lease, { success: false, error: message, health: sourceHealth }).catch(() => {});
       } finally { await releaseCollectorLease(pool, lease).catch(() => {}); }
     }
     const wait = Math.min(90000 * 2 ** Math.min(failures, 4), 900000) + Math.floor(Math.random() * 5000);

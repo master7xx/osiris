@@ -1,3 +1,4 @@
+import { collectorRefreshError } from './collector-status-reason';
 import { currentEventReports } from './current-event-reports';
 import { eventDatabase } from './event-database';
 import { DurableEventReader } from './durable-event-reader';
@@ -25,7 +26,8 @@ export async function readDurableUnifiedFeed(): Promise<UnifiedEventFeed> {
   const health = snapshot.collector.source_health as EventSourceHealth[];
   const categories: UnifiedEventFeed['categories'] = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
-  return { events, total: events.length, mappable: events.filter(event => typeof event.lat === 'number' && typeof event.lng === 'number' && event.location_confidence >= .75).length,
+  const refreshError = collectorRefreshError(snapshot.collector.last_error);
+  return { ...(refreshError ? { refresh_error: refreshError } : {}), events, total: events.length, mappable: events.filter(event => typeof event.lat === 'number' && typeof event.lng === 'number' && event.location_confidence >= .75).length,
     confirmed: events.filter(event => event.confidence === 'confirmed').length, corroborating: events.filter(event => event.confidence === 'corroborating').length,
     unconfirmed: events.filter(event => event.confidence === 'unconfirmed').length, categories, source_health: health,
     source_count: health.reduce((sum, source) => sum + source.source_count, 0), healthy_sources: health.reduce((sum, source) => sum + source.healthy_sources, 0),

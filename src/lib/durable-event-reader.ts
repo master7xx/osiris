@@ -1,3 +1,4 @@
+import { publicCollectorError } from './collector-status-reason';
 import type { Pool } from 'pg';
 
 export class CursorResetRequired extends Error {}
@@ -24,6 +25,7 @@ export class DurableEventReader {
       if (!meta) throw new Error('Event store requires migration');
       const events = (await client.query('SELECT e.id,e.revision,e.cursor,e.payload,e.first_observed_at,e.last_observed_at,r.committed_at AS changed_at FROM osiris_events.events e JOIN osiris_events.revisions r ON r.cursor=e.cursor ORDER BY e.cursor')).rows;
       const collector = (await client.query('SELECT expires_at,last_success_at,last_error,source_health FROM osiris_events.collector WHERE singleton')).rows[0] ?? null;
+      if (collector) collector.last_error = publicCollectorError(collector.last_error);
       await client.query('COMMIT');
       return { collector, events, cursor: encode({ epoch: meta.epoch, after: meta.cursor, through: null }) };
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
@@ -45,6 +47,7 @@ export class DurableEventReader {
       const next = encode({ epoch: meta.epoch, after: more ? changes[changes.length - 1].cursor : through, through: more ? through : null });
       const collector = (await client.query('SELECT last_success_at,last_error,source_health FROM osiris_events.collector WHERE singleton')).rows[0] ?? null;
       const observations = more ? [] : (await client.query("SELECT id,last_observed_at,payload->'priority_score' AS priority_score FROM osiris_events.events")).rows;
+      if (collector) collector.last_error = publicCollectorError(collector.last_error);
       await client.query('COMMIT');
       return { observations, collector, changes, cursor: next, has_more: more, through };
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
