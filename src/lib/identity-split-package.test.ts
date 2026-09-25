@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createIdentitySnapshot } from './identity-reconciliation-snapshot';
+import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
 import { buildIdentitySplitPackage, validateIdentitySplitPackage, verifyChildObservation } from './identity-split-package';
 
 function fixture(near = false, extraEvidence = false) {
@@ -52,4 +52,34 @@ it('rejects invalid and future observation times', () => {
     expect(verifyChildObservation(child, [{ payload, observed_at }], '2026-09-16T00:00:00Z', Date.parse('2026-10-01')).blocker)
       .toBe('source_observation_time_invalid');
   }
+});
+
+it('excludes historical proximity holds after coordinates move apart and across repeated snapshots', () => {
+  const previous = replayIdentitySnapshot(fixture(true));
+  const current = fixture(false);
+  expect(buildIdentitySplitPackage(current).data.splits).toHaveLength(1);
+  const annotated = createIdentitySnapshot(current.data.report, [previous]);
+  const first = replayIdentitySnapshot(annotated);
+  expect(first.reconciliation.groups[0].blockers).toContain('historical_pair_requires_review');
+  expect(buildIdentitySplitPackage(annotated).data.splits).toEqual([]);
+  const repeated = createIdentitySnapshot(annotated.data.report, [first, previous]);
+  expect(replayIdentitySnapshot(repeated).reconciliation.historical_pair_reviews)
+    .toEqual(first.reconciliation.historical_pair_reviews);
+  expect(buildIdentitySplitPackage(repeated).data.splits).toEqual([]);
+});
+
+it('does not persist missing-observation blockers after observations become available', () => {
+  const current = fixture(false);
+  const missing = structuredClone(current.data.report);
+  missing.snapshotData.signals = [];
+  const previous = replayIdentitySnapshot(createIdentitySnapshot(missing));
+  expect(previous.reconciliation.groups[0].blockers).toContain('identity_not_in_retained_signals');
+  expect(buildIdentitySplitPackage(createIdentitySnapshot(current.data.report, [previous])).data.splits).toHaveLength(1);
+});
+
+it('rejects historical reports from a different store epoch', () => {
+  const current = fixture();
+  const previous = replayIdentitySnapshot(current);
+  previous.reconciliation.epoch = 'another-store';
+  expect(() => createIdentitySnapshot(current.data.report, [previous])).toThrow('epoch');
 });
