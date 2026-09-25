@@ -7,9 +7,10 @@ interface CameraViewerProps {
   camera: (PlaybackCamera & { city?: string; country?: string }) | null;
   cameras?: PlaybackCamera[];
   onClose: () => void;
+  onSelect: (camera: PlaybackCamera) => void;
   onLocate?: (lat: number, lng: number) => void;
 }
-export default function CameraViewer({ camera, cameras = [], onClose, onLocate }: CameraViewerProps) {
+export default function CameraViewer({ camera, cameras = [], onClose, onSelect, onLocate }: CameraViewerProps) {
   const [fullscreen, setFullscreen] = useState(false);
   if (!camera) return null;
   const neighbors = nearbyCameras(camera, cameras);
@@ -24,7 +25,7 @@ export default function CameraViewer({ camera, cameras = [], onClose, onLocate }
     <div className={`min-h-0 ${fullscreen ? 'flex-1' : 'aspect-video'}`}><CameraMedia key={camera.id || source} camera={camera} /></div>
     {neighbors.length > 0 && <div className="border-t border-white/20 p-2">
       <p className="mb-2 text-[10px] text-white/60">NEARBY · WITHIN 2 KM · {neighbors.length + 1}/4 CAMERAS</p>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{neighbors.map(c => <div key={c.id}><div className="aspect-video"><CameraMedia camera={c} /></div><p className="truncate text-[9px]">{c.name}</p></div>)}</div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{neighbors.map(c => <div key={c.id}><div className="aspect-video"><CameraMedia camera={c} /></div><button type="button" onClick={() => onSelect(c)} aria-label={`Show ${c.name || 'camera'} as main camera`} title="Show as main camera" className="flex w-full items-center gap-1 rounded-sm px-1 py-1 text-left text-[10px] text-sky-300 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300"><Maximize2 size={12} className="shrink-0" /><span className="truncate">{c.name}</span></button></div>)}</div>
     </div>}
     <footer className="flex justify-between border-t border-white/20 p-2 text-[10px] text-white/60"><span>Direct playback · clips are not continuous live video</span>{source && <a href={source} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">SOURCE <ExternalLink size={12} /></a>}</footer>
   </section>;

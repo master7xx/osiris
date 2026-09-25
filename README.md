@@ -1088,3 +1088,9 @@ While cameras and Events share a narrow desktop view, the drawer backdrop is
 suppressed so it cannot dim the video or intercept camera controls; closing the
 camera restores normal drawer behavior. Browser regression tests exercise the
 real DashboardShell with its Events panel.
+
+In the camera viewer, use the name button below a neighboring player to make
+that camera the main view. The nearby list is recalculated within 2 km of the
+new selection (up to three neighbors). This preserves expanded mode and does
+not move the map; the Locate button remains available for recentering. Native
+video controls continue to control their own player.
