@@ -23,6 +23,8 @@ export interface ClientEventIngestSnapshot {
   source_count: number;
   healthy_sources: number;
   generated_at?: string;
+  cached?: boolean;
+  refresh_error?: string;
   categories: Record<string, number>;
   source_health: ClientEventSourceHealth[];
 }

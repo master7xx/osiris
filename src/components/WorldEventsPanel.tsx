@@ -28,7 +28,7 @@ export default function WorldEventsPanel({ onLocate }: { onLocate?: () => void }
       <details><summary>Sources in this view ({feed.sources.length})</summary><div className="world-event-sources">{feed.sources.map(source => <SourceBadge key={source.source_id} source={source.source} evidence={source} />)}{!feed.sources.length && <span>No sources in this view.</span>}</div></details>
       {feed.fromCache ? 'CACHED DATA · ' : ''}{feed.loading ? 'Refreshing… ' : ''}{feed.stale ? 'STALE · ' : ''}{feed.partial ? 'PARTIAL SOURCES (GLOBAL) · ' : ''}
       {feed.error && `${feed.snapshot ? 'Refresh failed; keeping previous snapshot' : 'Unable to load events'}: ${feed.error} `}
-      {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} global sources · Snapshot {new Date(feed.snapshot.generated_at).toLocaleTimeString([], { timeZone: 'UTC', hour12: false })} UTC</span>}
+      {feed.snapshot && <span>{feed.snapshot.healthy_sources}/{feed.snapshot.source_count} global sources · Snapshot {feed.freshness.timestamp}</span>}
       <button type="button" disabled={feed.loading} onClick={() => void feed.refresh()}>Refresh</button>
     </div>
     <div ref={list} className="world-events-list">

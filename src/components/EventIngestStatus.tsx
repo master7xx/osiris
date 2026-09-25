@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { eventFreshness } from '@/lib/event-freshness';
 import { createPortal } from 'react-dom';
 import {
   getEventIngestHealthSnapshot,
@@ -40,6 +41,14 @@ export default function EventIngestStatus() {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useSyncExternalStore(subscribeEventIngestHealth, getEventIngestHealthVersion, () => 0);
   const snapshot = getEventIngestHealthSnapshot();
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    const initial = setTimeout(update, 0);
+    const timer = setInterval(update, 15000);
+    document.addEventListener('visibilitychange', update);
+    return () => { clearTimeout(initial); clearInterval(timer); document.removeEventListener('visibilitychange', update); };
+  }, []);
 
   useEffect(() => {
     const syncTarget = () => setTarget(findDebugHeader());
@@ -51,6 +60,8 @@ export default function EventIngestStatus() {
 
   if (!target || !target.isConnected || !snapshot) return null;
 
+  const freshness = eventFreshness(snapshot.generated_at, now, snapshot.cached);
+  const historical = freshness.stale || Boolean(snapshot.refresh_error);
   const errorCount = snapshot.source_health.filter(source => source.state === 'error').length;
   const partialCount = snapshot.source_health.filter(source => source.state === 'partial').length;
   const categorySummary = Object.entries(snapshot.categories)
@@ -89,6 +100,10 @@ export default function EventIngestStatus() {
       >
         EVENT INGEST
       </strong>
+      {freshness.stale && <span style={{ color: COLORS.partial }}>STALE</span>}
+      {snapshot.cached && <span style={{ color: COLORS.partial }}>CACHED</span>}
+      {snapshot.refresh_error && <span style={{ color: COLORS.error }} title={snapshot.refresh_error}>REFRESH FAILED</span>}
+      <span title="Time of the last successful feed; source results below may be historical">Last success: {freshness.timestamp}</span>
       <span style={{ color: '#DDF3FF' }}>{snapshot.total} EVT</span>
       <span>{snapshot.mappable} MAP</span>
       <span style={{ color: '#5EE6A8' }}>{snapshot.confirmed} CONF</span>
@@ -97,11 +112,11 @@ export default function EventIngestStatus() {
       {errorCount > 0 && <span style={{ color: COLORS.error }}>{errorCount} ERROR</span>}
 
       {snapshot.source_health.map(source => {
-        const color = COLORS[source.state];
+        const color = historical ? COLORS.partial : COLORS[source.state];
         return (
           <span
             key={source.id}
-            title={sourceTitle(source)}
+            title={`${historical ? 'Last recorded source result; current availability is unverified.\n' : ''}${sourceTitle(source)}`}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -116,7 +131,7 @@ export default function EventIngestStatus() {
             <span style={{ width: 6, height: 6, borderRadius: 999, background: color, boxShadow: `0 0 5px ${color}` }} />
             <b style={{ color: '#DDF3FF', fontWeight: 700 }}>{source.label.toUpperCase()}</b>
             <span>{source.events} EVT</span>
-            <span style={{ color }}>{source.state.toUpperCase()}</span>
+            <span style={{ color }}>{historical ? 'LAST: ' : ''}{source.state.toUpperCase()}</span>
           </span>
         );
       })}

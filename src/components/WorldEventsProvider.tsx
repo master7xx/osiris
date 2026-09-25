@@ -4,6 +4,7 @@ import type { UnifiedEventFeed } from '@/lib/event-feed';
 import { DEFAULT_EVENT_FILTERS, projectWorldEvents, isMappable, type EventFilters } from '@/lib/world-events-view';
 import { readEventCache, writeEventCache } from '@/lib/client-event-cache';
 import { synchronizeEvents, type EventClientCache } from '@/lib/client-event-sync';
+import { eventFreshness } from '@/lib/event-freshness';
 import { setEventIngestHealth } from '@/lib/event-health-client';
 
 function useWorldEventsState(onMapSelect: () => void) {
@@ -33,9 +34,13 @@ function useWorldEventsState(onMapSelect: () => void) {
       if (request.current !== controller) return;
       checkpoint.current = next;
       writeEventCache(next);
-      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth(next.feed); setError(''); setFromCache(Boolean(next.feed.refresh_error));
+      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth({ ...next.feed, cached: Boolean(next.feed.refresh_error) }); setError(''); setFromCache(Boolean(next.feed.refresh_error));
     } catch (err) {
-      if (request.current === controller) { setError(err instanceof Error ? err.message : 'Event refresh failed'); setFromCache(Boolean(checkpoint.current)); }
+      if (request.current === controller) {
+        const message = err instanceof Error ? err.message : 'Event refresh failed';
+        setError(message); setFromCache(Boolean(checkpoint.current));
+        if (checkpoint.current) setEventIngestHealth({ ...checkpoint.current.feed, cached: true, refresh_error: message });
+      }
     } finally {
       clearTimeout(timeout);
       if (request.current === controller) { request.current = null; setLoading(false); setNow(Date.now()); }
@@ -44,7 +49,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   useEffect(() => {
     const initial = setTimeout(() => {
       const cached = readEventCache();
-      if (cached) { checkpoint.current = cached; setRetainedIds(cached.retainedIds ?? []); setSnapshot(cached.feed); setEventIngestHealth(cached.feed); setFromCache(true); setNow(Date.now()); }
+      if (cached) { checkpoint.current = cached; setRetainedIds(cached.retainedIds ?? []); setSnapshot(cached.feed); setEventIngestHealth({ ...cached.feed, cached: true }); setFromCache(true); setNow(Date.now()); }
       void refresh();
     }, 0);
     const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 90000);
@@ -63,9 +68,10 @@ function useWorldEventsState(onMapSelect: () => void) {
     if (origin === 'map') { setMapSelection(value => value + 1); openFeed(); }
     else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
   }, [openFeed]);
+  const freshness = eventFreshness(snapshot?.generated_at, now, fromCache);
   return { openFeed, panelRequest, snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,
     enabled, setEnabled, loading, error: error || snapshot?.refresh_error || '', refresh, fromCache,
-    stale: !!snapshot && (fromCache || now - Date.parse(snapshot.generated_at) > 180000),
+    freshness, stale: !!snapshot && freshness.stale,
     partial: !!snapshot && (snapshot.healthy_sources < snapshot.source_count || snapshot.source_health.some(source => source.state !== 'healthy')) };
 }
 const WorldEventsContext = createContext<ReturnType<typeof useWorldEventsState> | null>(null);

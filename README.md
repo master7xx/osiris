@@ -1019,3 +1019,15 @@ assignments. Run it before restarting collection: subsequent collection may chan
 current payloads or advance the cursor and will be reported. `check` and `verify`
 exit nonzero when their checks fail. Full rollback/retry and changed-precondition
 scenarios are covered by the PostgreSQL integration suite.
+
+
+### Event freshness in the feed and diagnostics
+
+The feed and EVENT INGEST diagnostics share the three-minute freshness threshold.
+Diagnostics update their clock every 15 seconds even when no new feed arrives;
+returning to the tab also updates it. Cached or stale results label provider states
+as `LAST: ...` and use an amber indicator rather than presenting old healthy states
+as current availability. Refresh failures preserve the last feed and appear in both
+views; a successful refresh clears the failure. Last-success timestamps include the
+full UTC date as well as time. This is freshness of the feed, not a per-source heartbeat
+or proof that a collector process is running.
