@@ -366,7 +366,8 @@ Migrations remain explicit, transactional and checksum-checked. Production
 no collection timer runs inside Next.js.
 
 - `/api/events/stored` returns all retained current records and a consistent
-  opaque replay cursor. It also exposes the last collector success/error.
+  opaque replay cursor. It also exposes the last collector success and a sanitized
+  collector error; raw database/provider exception messages are not returned.
 - `/api/events/changes?cursor=TOKEN&limit=100` returns unfiltered immutable revisions,
   ordered by cursor. Pages retain a fixed upper boundary during concurrent ingest;
   after the final page the next request starts a new polling boundary.
@@ -378,7 +379,12 @@ The collector runs core and supplemental adapters together every ~90 seconds,
 with bounded exponential backoff on failure. Successful raw signals remain for
 48 hours to survive missing-source responses. Database-time leases and fencing
 reject writes from expired owners. Ambiguous identities are skipped and reported
-in collector status. Sources still use existing adapter timeouts; independent
+in collector status. Completed source checks are saved even if all sources fail or
+later event processing fails; the last successful feed timestamp is preserved.
+Durable clients keep received events and show a refresh error on failed collection,
+clearing it after recovery. Successful cycles with identity skips remain warnings.
+Expired or superseded workers cannot overwrite the collector outcome.
+Sources still use existing adapter timeouts; independent
 per-source schedules and automatic fuzzy reconciliation remain future work.
 Historical evidence stays separate from the current event payload, but retained
 signals may still contribute to confidence within the observation window.

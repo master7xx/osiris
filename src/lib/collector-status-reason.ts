@@ -19,3 +19,15 @@ export function collectorStatusReason(message: string | null) {
     level: 'error', skipped_candidates: null,
   };
 }
+
+/** Public replay endpoints must not return database/provider exception text. */
+export function publicCollectorError(message: string | null): string | null {
+  if (message === null) return null;
+  return collectorStatusReason(message).category === 'unclassified' ? 'Event collection failed' : message;
+}
+
+/** Successful cycles with skipped identities are warnings, not failed refreshes. */
+export function collectorRefreshError(message?: string | null): string | undefined {
+  if (message == null || collectorStatusReason(message).level !== 'error') return undefined;
+  return publicCollectorError(message) ?? undefined;
+}

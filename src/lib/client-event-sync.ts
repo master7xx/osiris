@@ -1,3 +1,4 @@
+import { collectorRefreshError } from './collector-status-reason';
 import { deduplicateReports, reportIdentity } from './event-identity';
 import type { UnifiedEventFeed } from './event-feed';
 import type { ContinuousEvent } from './event-ledger';
@@ -53,7 +54,8 @@ function project(events: ContinuousEvent[], collector: Collector | null, fallbac
   checkHealth(health);
   const categories: UnifiedEventFeed['categories'] = {};
   for (const event of events) categories[event.category] = (categories[event.category] ?? 0) + 1;
-  return { ...(!collector && fallback?.refresh_error ? {
+  const refreshError = collectorRefreshError(collector?.last_error);
+  return { ...(refreshError ? { refresh_error: refreshError } : {}), ...(!collector && fallback?.refresh_error ? {
     refresh_error: fallback.refresh_error, refresh_attempted_at: fallback.refresh_attempted_at,
   } : {}), events, total: events.length, mappable: events.filter(isMappable).length,
     confirmed: events.filter(event => event.confidence === 'confirmed').length, corroborating: events.filter(event => event.confidence === 'corroborating').length,

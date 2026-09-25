@@ -1,3 +1,4 @@
+import { recordCollectorOutcome } from './collector-outcome';
 import { applyIdentityPackage, verifyIdentityPackage } from './apply-identity-package';
 import { buildIdentitySplitPackage, checkIdentitySplitPackage } from './identity-split-package';
 import { createIdentitySnapshot, replayIdentitySnapshot } from './identity-reconciliation-snapshot';
@@ -132,6 +133,30 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(redacted.collector).toMatchObject({ category: 'unclassified', level: 'error', skipped_candidates: null });
     expect(JSON.stringify(redacted)).not.toContain(privateError);
     expect((await pool.query('SELECT last_error FROM osiris_events.collector')).rows[0].last_error).toBe(privateError);
+  });
+
+  it('records outage health without advancing success, redacts replay errors, and fences stale outcomes', async () => {
+    const lease = (await acquireCollectorLease(pool, randomUUID()))!;
+    const healthy = [{ id: 'test', label: 'Test', state: 'healthy' as const, ok: true, duration_ms: 1,
+      events: 1, source_count: 1, healthy_sources: 1 }];
+    expect(await recordCollectorOutcome(pool, lease, { success: true, error: null, health: healthy })).toBe(true);
+    const success = (await pool.query('SELECT last_success_at FROM osiris_events.collector')).rows[0].last_success_at;
+    const failed = [{ ...healthy[0], state: 'error' as const, ok: false, events: 0, healthy_sources: 0 }];
+    expect(await recordCollectorOutcome(pool, lease, { success: false, error: 'All event sources unavailable', health: failed })).toBe(true);
+    const reader = new DurableEventReader(pool);
+    const outage = await reader.bootstrap();
+    expect(outage.collector).toMatchObject({ last_success_at: success, source_health: failed, last_error: 'All event sources unavailable' });
+    const secret = 'postgres://user:secret@private/db';
+    await recordCollectorOutcome(pool, lease, { success: false, error: secret });
+    expect((await reader.bootstrap()).collector).toMatchObject({ source_health: failed, last_error: 'Event collection failed' });
+    expect((await reader.changes(outage.cursor)).collector?.last_error).toBe('Event collection failed');
+    expect((await pool.query('SELECT last_error FROM osiris_events.collector')).rows[0].last_error).toBe(secret);
+    await pool.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()-interval '1 second'");
+    expect(await recordCollectorOutcome(pool, lease, { success: true, error: null, health: healthy })).toBe(false);
+    const next = (await acquireCollectorLease(pool, randomUUID()))!;
+    expect(await recordCollectorOutcome(pool, lease, { success: false, error: 'stale worker', health: [] })).toBe(false);
+    expect(await recordCollectorOutcome(pool, next, { success: true, error: null, health: healthy })).toBe(true);
+    expect((await reader.bootstrap()).collector).toMatchObject({ source_health: healthy, last_error: null });
   });
 
   it('reconstructs a bridge between persisted events without changing history', async () => {

@@ -112,3 +112,34 @@ describe('split replacement replay', () => {
     expect(result.feed.events.map(e => e.id)).toEqual(['b', 'c']);
   });
 });
+
+
+describe('durable collector outage and recovery', () => {
+  it('keeps events and the last success time while publishing failed source checks, then clears the error', async () => {
+    const previous = await initial();
+    const failed = { ...collector, last_error: 'All event sources unavailable', source_health: [
+      { id: 'test', label: 'Test', state: 'error', ok: false, duration_ms: 100, events: 0, source_count: 1, healthy_sources: 0 },
+    ] };
+    const result = await synchronizeEvents(previous, queue({ mode: 'durable', version: 1 },
+      { changes: [], collector: failed, cursor: 'start', has_more: false }).fetcher, signal());
+    expect(result.feed.events).toEqual(previous.feed.events);
+    expect(result.feed.generated_at).toBe(time);
+    expect(result.feed.healthy_sources).toBe(0);
+    expect(result.feed.refresh_error).toBe('All event sources unavailable');
+    const recovered = await synchronizeEvents(result, queue({ mode: 'durable', version: 1 },
+      { changes: [], collector: { ...collector, last_error: null }, cursor: 'start', has_more: false }).fetcher, signal());
+    expect(recovered.feed.refresh_error).toBeUndefined();
+    expect(recovered.feed.events).toEqual(previous.feed.events);
+    expect(result.feed.refresh_error).toBeDefined();
+  });
+  it('does not label skipped-identity warnings as refresh failure and redacts unexpected errors', async () => {
+    for (const [last_error, expected] of [
+      ['3 candidates skipped: identity reconciliation required', undefined],
+      ['postgres://user:password@private/db', 'Event collection failed'],
+    ]) {
+      const result = await synchronizeEvents(null, queue({ mode: 'durable', version: 1 },
+        { events: [row], collector: { ...collector, last_error }, cursor: 'start' }).fetcher, signal());
+      expect(result.feed.refresh_error).toBe(expected);
+    }
+  });
+});
