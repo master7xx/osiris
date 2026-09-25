@@ -1,3 +1,4 @@
+import { cameraDiagnostics } from '@/lib/camera-diagnostics';
 import { getCctvProviderHealth, noteCctvProviderResponse } from '@/lib/cctv-provider-health';
 import {
   analyzeCctvCoverage,
@@ -103,6 +104,7 @@ export async function GET(request: Request) {
 
     const cameras = Array.isArray(payload.cameras) ? payload.cameras : [];
     noteCctvProviderResponse(cameras);
+    cameraDiagnostics.register(cameras);
 
     const coverage = analyzeCctvCoverage(cameras, {
       scope: requestCoverageScope(request),

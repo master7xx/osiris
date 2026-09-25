@@ -21,7 +21,8 @@
     "test:event-store": "node tools/test-event-store.mjs",
     "predev": "node tools/prepare-map-worker.mjs",
     "predev:windows": "node tools/prepare-map-worker.mjs",
-    "prebuild": "node tools/prepare-map-worker.mjs"
+    "prebuild": "node tools/prepare-map-worker.mjs",
+    "test:camera-browser": "playwright test --config tools/camera-browser/playwright.config.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -44,6 +45,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/google-libphonenumber": "^7.4.30",
     "@types/node": "^22.20.2",

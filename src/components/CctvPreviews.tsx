@@ -1,34 +1,17 @@
 'use client';
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Maximize2 } from 'lucide-react';
-import { freshen, previewMedia, refreshInterval, VIDEO_KINDS, type PreviewKind } from '@/lib/camera-preview';
+import CameraMedia from './CameraMedia';
+import { snapshotUrl } from '@/lib/camera-playback';
+import { type PreviewKind } from '@/lib/camera-preview';
 import { layoutTile, tileHeight, tilesOverlap, type TileGeometry } from '@/lib/map-tile-layout';
 import type { Map as MlMap } from 'maplibre-gl';
 
-/**
- * OSIRIS — live CCTV previews on the map
- *
- * Zoom in far enough on a cluster of cameras and the nearest ones stop being
- * dots and start showing what they see: a small live frame pinned above each
- * marker, captioned with the camera's name.
- *
- * Most of the ~19,000 are JPEG snapshot feeds, which cost one request per
- * refresh. The ones that are video get a tile too — Quebec 511 alone is 675
- * MP4 cameras, and leaving them as dots read as "no camera here" rather than
- * "this one needs a player" — but no more than MAX_VIDEO_TILES play at once,
- * because decoding is what the frame budget actually goes on. Beyond that a
- * video camera stays a dot and opens on click, as embeds always do.
- *
- * Positions are written straight to the DOM on every map `move`, so panning
- * does not re-render React 60 times a second. Which cameras are shown is
- * recomputed only when the map settles.
- */
+/** Snapshot-only map overview. Active playback belongs to CameraViewer. */
 
 const MIN_ZOOM = 13;
 const MAX_TILES = 8;
-/** Simultaneously decoding tiles. Snapshots fill whatever is left of MAX_TILES. */
-const MAX_VIDEO_TILES = 4;
+
 
 /** 16:9 frame, so nothing is letterboxed inside its own container. */
 const GEOM: TileGeometry = { width: 176, imageHeight: 99, labelHeight: 20, gap: 26 };
@@ -64,139 +47,7 @@ export interface PreviewCamera {
   media: { kind: PreviewKind; url: string };
 }
 
-interface MediaProps {
-  cam: PreviewCamera;
-  onReady: () => void;
-  onFail: () => void;
-}
-
-const FIT = 'h-full w-full object-cover transition-opacity duration-500';
-
-/** Snapshot and MJPEG feeds: an <img>, re-requested only if its kind needs it. */
-function ImageMedia({ cam: camera, onReady, onFail }: MediaProps) {
-  const { kind, url } = camera.media;
-  const every = refreshInterval(kind);
-  const [src, setSrc] = useState(() => (every ? freshen(url) : url));
-
-  useEffect(() => {
-    if (!every) return;
-    /* Staggered, so eight tiles do not all hit their origin on the same tick. */
-    let interval: ReturnType<typeof setInterval> | undefined;
-    const first = setTimeout(() => {
-      setSrc(freshen(url));
-      interval = setInterval(() => setSrc(freshen(url)), every);
-    }, every + Math.random() * 2000);
-    return () => {
-      clearTimeout(first);
-      if (interval) clearInterval(interval);
-    };
-  }, [url, every]);
-
-  return (
-    /* eslint-disable-next-line @next/next/no-img-element -- remote camera frames, no loader */
-    <img
-      src={src}
-      alt={camera.name}
-      width={TILE_W}
-      height={IMG_H}
-      className={FIT}
-      onLoad={onReady}
-      onError={onFail}
-      draggable={false}
-    />
-  );
-}
-
-/**
- * MP4 clips and HLS streams.
- *
- * Muted and inline, which is what browsers require before they will autoplay
- * anything without a gesture. hls.js is imported only when an HLS tile is
- * actually on screen: it is a decoder, and the overwhelming majority of tiles
- * never need it.
- */
-function VideoMedia({ cam: camera, onReady, onFail }: MediaProps) {
-  const { kind, url } = camera.media;
-  const ref = useRef<HTMLVideoElement>(null);
-  /* MP4 clips are a few seconds long and loop, so they go stale; re-pointing
-     the element is what refreshes them. HLS is already live and returns 0. */
-  const [cacheBust, setCacheBust] = useState(0);
-  const every = refreshInterval(kind);
-
-  useEffect(() => {
-    if (!every) return;
-    const t = setInterval(() => setCacheBust(n => n + 1), every + Math.random() * 4000);
-    return () => clearInterval(t);
-  }, [every]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    if (kind === 'mp4') {
-      el.src = cacheBust ? freshen(url) : url;
-      el.play().catch(() => { /* autoplay refused: the frame still shows */ });
-      return;
-    }
-
-    /* HLS: the decoder first, native playback only as the fallback — the same
-       order the full viewer uses. Chrome answers `canPlayType` for HLS with
-       "maybe" whether or not the build can actually decode it, so trusting it
-       first would leave a dead tile on every build that cannot. */
-    let cancelled = false;
-    let hls: { destroy: () => void } | null = null;
-    import('hls.js').then(({ default: Hls }) => {
-      if (cancelled || !ref.current) return;
-      if (!Hls.isSupported()) {
-        if (ref.current.canPlayType('application/vnd.apple.mpegurl')) {
-          ref.current.src = url;
-          ref.current.play().catch(() => {});
-        } else {
-          onFail();
-        }
-        return;
-      }
-      /* A short buffer: eight of these would otherwise each hold seconds of
-         video for a tile the size of a postage stamp. */
-      const instance = new Hls({ enableWorker: false, maxBufferLength: 6 });
-      hls = instance;
-      instance.on(Hls.Events.ERROR, (_e, data) => { if (data.fatal) onFail(); });
-      instance.loadSource(url);
-      instance.attachMedia(ref.current);
-      ref.current.play().catch(() => {});
-    }).catch(onFail);
-
-    return () => { cancelled = true; hls?.destroy(); };
-  }, [kind, url, cacheBust, onFail]);
-
-  return (
-    <video
-      ref={ref}
-      className={FIT}
-      muted
-      playsInline
-      loop
-      autoPlay
-      preload="auto"
-      onLoadedData={onReady}
-      onError={onFail}
-    />
-  );
-}
-
 function Tile({ cam: camera, onOpen }: { cam: PreviewCamera; onOpen: (cam: PreviewCamera) => void }) {
-  const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-
-  /* No reset needed on the way in: each tile is keyed by camera id, so a slot
-     changing hands remounts this component with fresh state. */
-  const onReady = useCallback(() => setLoaded(true), []);
-  const onFail = useCallback(() => setFailed(true), []);
-
-  /* A camera that will not load is worse than no tile: it is a broken box
-     sitting over the map claiming to be a feed. */
-  if (failed) return null;
-
   return (
     <button
       onClick={() => onOpen(camera)}
@@ -212,11 +63,7 @@ function Tile({ cam: camera, onOpen }: { cam: PreviewCamera; onOpen: (cam: Previ
           boxShadow: '0 6px 20px rgba(0,0,0,0.65)',
         }}
       >
-        <div className="h-full w-full transition-opacity duration-500" style={{ opacity: loaded ? 1 : 0 }}>
-          {VIDEO_KINDS.has(camera.media.kind)
-            ? <VideoMedia cam={camera} onReady={onReady} onFail={onFail} />
-            : <ImageMedia cam={camera} onReady={onReady} onFail={onFail} />}
-        </div>
+        <CameraMedia camera={camera} overview />
 
         {/* Two cosmetic passes over the picture: scanlines, for the same CRT
             read the full viewer already has, and an inner vignette so a bright
@@ -242,34 +89,7 @@ function Tile({ cam: camera, onOpen }: { cam: PreviewCamera; onOpen: (cam: Previ
           />
         ))}
 
-        <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 bg-black/70 px-1 py-[1px]">
-          <span className="h-1 w-1 rounded-full bg-[var(--alert-red)] animate-pulse" />
-          <span className="font-mono text-[7px] tracking-[0.18em] text-white/75">LIVE</span>
-        </div>
 
-        {/* Hover only: the tile is already a button, this says what it opens. */}
-        <div
-          className="pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-1 bg-black/70 px-1 py-[1px] opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-          style={{ color: CAM }}
-        >
-          <Maximize2 className="h-2 w-2" />
-          <span className="font-mono text-[7px] tracking-[0.18em]">OPEN</span>
-        </div>
-
-        {!loaded && (
-          <div className="absolute inset-0 overflow-hidden bg-black">
-            <div
-              className="absolute inset-x-0 h-8"
-              style={{
-                background: `linear-gradient(to bottom, transparent, ${cam(18)}, transparent)`,
-                animation: 'scan-line-sweep 1.8s ease-in-out infinite',
-              }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center font-mono text-[7px] tracking-[0.25em] text-white/30">
-              LINKING
-            </div>
-          </div>
-        )}
       </div>
 
       <div
@@ -352,7 +172,8 @@ function CctvPreviews({ mapRef, active, onOpen }: {
       const str = (k: string) => (p[k] ? String(p[k]) : undefined);
       /* What this camera can actually show in a tile. Null means it needs an
          embed, or has no usable URL — either way it stays a dot. */
-      const media = previewMedia({ stream_type: str('stream_type'), feed_url: str('feed_url'), stream_url: str('stream_url') });
+      const snapshot = snapshotUrl({ stream_type: str('stream_type'), feed_url: str('feed_url'), stream_url: str('stream_url') });
+      const media = snapshot ? { kind: 'jpg' as const, url: snapshot } : null;
       if (!media) continue;
 
       const coords = (f.geometry as { coordinates?: [number, number] })?.coordinates;
@@ -385,22 +206,17 @@ function CctvPreviews({ mapRef, active, onOpen }: {
        unusable smear rather than as several cameras. */
     candidates.sort((a, b) => a.d - b.d);
     const picked: typeof candidates = [];
-    let videos = 0;
+
     for (const c of candidates) {
       if (picked.length >= MAX_TILES) break;
-      /* Decoding is the expensive part, so the moving tiles are rationed
-         separately. A video camera past the cap is skipped rather than
-         ending the search: the snapshot behind it can still have the slot. */
-      const isVideo = VIDEO_KINDS.has(c.cam.media.kind);
-      if (isVideo && videos >= MAX_VIDEO_TILES) continue;
       const clash = picked.some(p => tilesOverlap(p.box, c.box, GEOM));
       if (clash) continue;
       picked.push(c);
-      if (isVideo) videos++;
+
     }
 
     setCams(prev => {
-      const same = prev.length === picked.length && prev.every((p, i) => p.id === picked[i].cam.id);
+      const same = prev.length === picked.length && prev.every((p, i) => p.id === picked[i].cam.id && p.feed_url === picked[i].cam.feed_url && p.stream_url === picked[i].cam.stream_url);
       return same ? prev : picked.map(p => p.cam);
     });
   }, [mapRef, active]);

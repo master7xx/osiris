@@ -1,0 +1,25 @@
+name: Camera browser
+on:
+  pull_request:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: google-chrome --version
+      - run: npm run test:camera-browser
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: camera-browser-results
+          path: test-results/

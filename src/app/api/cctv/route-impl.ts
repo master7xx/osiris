@@ -64,12 +64,14 @@ async function fetchTfLCameras(): Promise<any[]> {
     const data = await res.json();
     return (data || []).map((cam: any) => {
       const imgProp = cam.additionalProperties?.find((p: any) => p.key === 'imageUrl');
+      const videoProp = cam.additionalProperties?.find((p: any) => p.key === 'videoUrl');
       const camId = cam.id?.replace('JamCams_', '') || '';
       return {
         id: `tfl-${cam.id}`, lat: cam.lat, lng: cam.lon,
         name: cam.commonName || 'London JamCam', city: 'London', country: 'UK',
         feed_url: imgProp?.value || `https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/${camId}.jpg`,
         source: 'TfL',
+        ...(videoProp?.value ? { stream_url: videoProp.value, stream_type: 'mp4' } : {}),
       };
     }).filter((c: any) => c.lat && c.lng);
   } catch (e) { return []; }
