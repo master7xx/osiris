@@ -15,7 +15,7 @@ export function nearbyCameras(selected: PlaybackCamera, cameras: PlaybackCamera[
   return cameras.filter(c => {
     if (!c.id || seen.has(c.id) || !Number.isFinite(c.lat) || !Number.isFinite(c.lng)) return false;
     seen.add(c.id);
-    return !!c.stream_url && ['mp4', 'hls', 'mjpeg', 'iframe'].includes(c.stream_type || '');
+    return !!c.stream_url && ['mp4', 'hls', 'mjpeg'].includes(c.stream_type || '');
   }).map(c => {
     const lat = (c.lat! - selected.lat!) * Math.PI / 180;
     const lon = (c.lng! - selected.lng!) * Math.PI / 180;

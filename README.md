@@ -1075,3 +1075,16 @@ Camera browser regression checks: `npm run test:camera-browser` (installed Googl
 Chrome required). CI uses a local synthetic MP4 fixture and mocked diagnostics,
 covering snapshot-only overview, four-player selection, clip refresh, errors and
 visibility/close cleanup. These tests do not certify live provider availability.
+
+Camera windows are anchored to the dashboard's usable map workspace, including
+expanded view and changes to the Events sidebar. Each image has one compact status
+badge; hover its badge for the server HEAD result and timestamp. Failed snapshots
+hide the browser's broken-image text. Map thumbnails no longer add scanline,
+vignette or corner overlays. Nearby autoplay includes direct MP4/HLS/MJPEG feeds;
+provider iframe pages require selecting that camera and are not opened as automatic
+neighbors. Initial diagnostic requests are briefly deferred so rapid tile removal
+and development StrictMode do not immediately start and abort redundant requests.
+While cameras and Events share a narrow desktop view, the drawer backdrop is
+suppressed so it cannot dim the video or intercept camera controls; closing the
+camera restores normal drawer behavior. Browser regression tests exercise the
+real DashboardShell with its Events panel.

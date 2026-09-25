@@ -90,3 +90,11 @@
 .dashboard-reopen-right { right:0; border-radius:5px 0 0 5px; }
 .dashboard-reopen:hover { background:#16455d; }
 @media (max-width: 1100px) { .dashboard-header-status { min-width:0; overflow:hidden; } }
+
+@media (max-width: 1023px) {
+  /* Camera and Events already occupy separate areas; a drawer backdrop must
+     not dim or intercept the camera controls in the remaining workspace. */
+  .dashboard-shell[data-news='open']:has(.camera-viewer) .dashboard-backdrop {
+    display: none;
+  }
+}

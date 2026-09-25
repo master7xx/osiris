@@ -65,30 +65,6 @@ function Tile({ cam: camera, onOpen }: { cam: PreviewCamera; onOpen: (cam: Previ
       >
         <CameraMedia camera={camera} overview />
 
-        {/* Two cosmetic passes over the picture: scanlines, for the same CRT
-            read the full viewer already has, and an inner vignette so a bright
-            frame does not bleed into the map at its edges. */}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ backgroundImage: 'repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0px, rgba(0,0,0,0.22) 1px, transparent 1px, transparent 3px)' }}
-        />
-        <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_22px_rgba(0,0,0,0.85)]" />
-
-        {/* Corner brackets. They make the frame read as an instrument rather
-            than a thumbnail, and they hold that read over any picture. */}
-        {[
-          'left-0 top-0 border-l border-t',
-          'right-0 top-0 border-r border-t',
-          'left-0 bottom-0 border-l border-b',
-          'right-0 bottom-0 border-r border-b',
-        ].map(pos => (
-          <span
-            key={pos}
-            className={`pointer-events-none absolute h-2.5 w-2.5 ${pos}`}
-            style={{ borderColor: cam(80) }}
-          />
-        ))}
-
 
       </div>
 

@@ -14,7 +14,7 @@ export default function CameraViewer({ camera, cameras = [], onClose, onLocate }
   if (!camera) return null;
   const neighbors = nearbyCameras(camera, cameras);
   const source = camera.external_url || camera.stream_url || camera.feed_url;
-  return <section aria-label="Camera viewing area" className={`fixed z-[10000] flex flex-col overflow-auto border border-[var(--border-primary)] bg-black/95 text-white shadow-2xl ${fullscreen ? 'inset-4' : 'bottom-[70px] left-2 right-2 max-h-[80vh] md:bottom-6 md:left-auto md:right-6 md:w-[560px]'}`}>
+  return <section aria-label="Camera viewing area" data-expanded={fullscreen} className={`camera-viewer fixed z-[10000] flex flex-col overflow-auto border border-[var(--border-primary)] bg-black/95 text-white shadow-2xl ${fullscreen ? 'inset-4' : 'bottom-[70px] left-2 right-2 max-h-[80vh] md:bottom-6 md:left-auto md:right-6 md:w-[560px]'}`}>
     <header className="flex items-center gap-2 border-b border-white/20 p-3">
       <div className="min-w-0 flex-1"><h2 className="truncate text-xs font-mono">{camera.name}</h2><p className="text-[10px] text-white/60">{camera.source} · {camera.city} {camera.country}</p></div>
       <button title="Locate camera" onClick={() => { if (camera.lat != null && camera.lng != null) onLocate?.(camera.lat, camera.lng); }}><MapPin size={16} /></button>
