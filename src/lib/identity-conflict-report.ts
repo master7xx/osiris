@@ -45,8 +45,8 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
     const meta = (await client.query('SELECT epoch,cursor,clock_timestamp() AS sampled_at FROM osiris_events.metadata WHERE singleton')).rows[0];
     if (!meta) throw new Error('Event store requires migration');
     const now = new Date(meta.sampled_at).getTime();
-    const rows = (await client.query(`SELECT payload FROM osiris_events.signals
-      WHERE observed_at >= $1::timestamptz - interval '48 hours' LIMIT 10001`, [meta.sampled_at])).rows;
+    const rows = (await client.query(`SELECT id,payload,observed_at FROM osiris_events.signals
+      WHERE observed_at >= $1::timestamptz - interval '48 hours' ORDER BY id LIMIT 10001`, [meta.sampled_at])).rows;
     if (rows.length > 10000) throw new Error('Diagnostic signal limit exceeded');
     const candidates = fuseEvents(rows.map(r => r.payload as IncomingEvent), { now, limit: rows.length })
       .map(event => ({ id: event.id, identities: collectorIdentities(event) }));
@@ -64,8 +64,29 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
       // Read ALL identities for affected events, not only currently retained keys.
       const allLinks = (await client.query<Match>(`SELECT i.source_id,i.upstream_id,i.event_id,e.revision
         FROM osiris_events.identities i JOIN osiris_events.events e ON e.id=i.event_id
-        WHERE i.event_id=ANY($1::uuid[]) LIMIT 100001`, [affected])).rows;
+        WHERE i.event_id=ANY($1::uuid[]) ORDER BY i.event_id,i.source_id,i.upstream_id LIMIT 100001`, [affected])).rows;
       if (allLinks.length > 100000) throw new Error('Diagnostic stored identity limit exceeded');
+      // Historical reconciliation is keyed by persisted identities, independent of the live window.
+      const historical = snapshotOptions ? (await client.query(`SELECT s.id,s.payload,s.observed_at
+        FROM osiris_events.signals s WHERE EXISTS (
+          SELECT 1 FROM jsonb_array_elements(s.payload->'evidence') AS item(evidence)
+          JOIN unnest($1::text[],$2::text[]) AS wanted(source_id,upstream_id)
+            ON evidence->>'source_id'=wanted.source_id
+            AND COALESCE(NULLIF(evidence->>'upstream_id',''),evidence->>'url')=wanted.upstream_id
+        ) ORDER BY s.id LIMIT 10001`,
+      [allLinks.map(l => l.source_id), allLinks.map(l => l.upstream_id)])).rows : [];
+      const analysisRows = [...new Map([...rows, ...historical].map(row => [row.id, row])).values()]
+        .sort((a, b) => a.id.localeCompare(b.id));
+      if (analysisRows.length > 10000) throw new Error('Diagnostic signal limit exceeded');
+      const observationCoverage = allLinks.map(link => {
+        const observations = analysisRows.filter(row => (row.payload as IncomingEvent).evidence.some(e =>
+          e.source_id === link.source_id && (e.upstream_id || e.url) === link.upstream_id));
+        const inWindow = observations.some(row => new Date(row.observed_at).getTime() >= now - 48 * 3600000);
+        return { event_id: link.event_id, source: link.source_id,
+          identity_fingerprint: fingerprint(key({ sourceId: link.source_id, upstreamId: link.upstream_id })),
+          status: inWindow ? 'in_window' : observations.length ? 'outside_window' : 'not_found_in_signal_store',
+          observed_at: observations.map(row => new Date(row.observed_at).toISOString()).sort() };
+      });
       const previews = (await client.query(`SELECT e.id,e.revision,e.payload,e.payload->>'title' AS title,
         e.payload->>'occurred_at' AS occurred_at,e.payload->'lat' AS lat,e.payload->'lng' AS lng,
         (SELECT jsonb_agg(x) FROM (SELECT r.revision,r.committed_at,r.payload->>'title' AS title,
@@ -77,11 +98,13 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
           FROM osiris_events.revisions WHERE event_id=ANY($1::uuid[])
           ORDER BY event_id,revision LIMIT 100001`, [affected])).rows;
         if (history.length > 100000) throw new Error('Diagnostic history limit exceeded');
-        snapshotData = { signals: rows.map(r => r.payload as IncomingEvent), links: allLinks,
+        snapshotData = { signals: analysisRows.map(r => r.payload as IncomingEvent), links: allLinks,
+          observation_coverage: observationCoverage,
           requested_event_ids: affected, events: previews, history };
       }
       reconciliation = { mode: 'dry-run', executable: false, epoch: meta.epoch,
-        groups: planIdentityReconciliation(rows.map(r => r.payload as IncomingEvent), allLinks),
+        groups: planIdentityReconciliation(analysisRows.map(r => r.payload as IncomingEvent), allLinks),
+        ...(snapshotOptions ? { observation_coverage: observationCoverage, analysis_signal_count: analysisRows.length } : {}),
         stored_event_reviews: previews.map(({ payload, ...preview }) => ({ ...preview, payload_hash: splitPayloadHash(payload) })),
         notes: ['Proposals require review of source semantics and historical payloads; the internal mutation primitive is not callable from this report.',
           'new-event targets are stable symbolic references, not allocated UUIDs.',

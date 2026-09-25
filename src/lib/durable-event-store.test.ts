@@ -187,7 +187,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect(captured.snapshotData?.history).toHaveLength(1);
     await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");
     const expired = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
-    expect(expired.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(expired.signal_count).toBe(0);
+    expect(expired.reconciliation?.analysis_signal_count).toBe(2);
+    expect(expired.reconciliation?.groups[0].action).toBe('propose_split_for_review');
+    expect(expired.reconciliation?.observation_coverage?.map(row => row.status)).toEqual(['outside_window', 'outside_window']);
+    expect(replayIdentitySnapshot(createIdentitySnapshot(expired)).reconciliation.groups)
+      .toEqual(expired.reconciliation?.groups);
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify({ ...b, lat: a.lat, lng: a.lng }), 'b']);
+    const historicalNearby = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    expect(historicalNearby.reconciliation?.groups[0].blockers).toContain('nearby_provider_events_require_review');
+    await pool.query('UPDATE osiris_events.signals SET payload=$1 WHERE id=$2', [JSON.stringify(b), 'b']);
+    // An actually absent row must remain blocked, unlike one merely outside the live window.
+    await pool.query('DELETE FROM osiris_events.signals WHERE id=$1', ['b']);
+    const missing = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
+    expect(missing.reconciliation?.groups[0].blockers).toContain('identity_not_in_retained_signals');
+    expect(missing.reconciliation?.observation_coverage?.filter(row => row.status === 'not_found_in_signal_store')).toHaveLength(1);
+    await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', ['b', JSON.stringify(b)]);
     expect(replayIdentitySnapshot(snapshot)).toEqual(replay);
     await pool.query('UPDATE osiris_events.signals SET observed_at=clock_timestamp()');
     expect(await new DurableEventReader(pool).bootstrap()).toEqual(before);
