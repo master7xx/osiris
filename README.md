@@ -384,6 +384,9 @@ later event processing fails; the last successful feed timestamp is preserved.
 Durable clients keep received events and show a refresh error on failed collection,
 clearing it after recovery. Successful cycles with identity skips remain warnings.
 Expired or superseded workers cannot overwrite the collector outcome.
+Exact identity lookups use batches of at most 300 unique source keys rather than
+one query per candidate. Candidate order and conflict skipping are preserved;
+leases are renewed between batches and writes still validate revisions and ownership.
 Sources still use existing adapter timeouts; independent
 per-source schedules and automatic fuzzy reconciliation remain future work.
 Historical evidence stays separate from the current event payload, but retained

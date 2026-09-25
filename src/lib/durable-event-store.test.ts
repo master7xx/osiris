@@ -1,3 +1,4 @@
+import { lookupCollectorIdentities } from './collector-identity-lookup';
 import { recordCollectorOutcome } from './collector-outcome';
 import { applyIdentityPackage, verifyIdentityPackage } from './apply-identity-package';
 import { buildIdentitySplitPackage, checkIdentitySplitPackage } from './identity-split-package';
@@ -165,6 +166,11 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     const second = write({ evidence: [{ ...first.event.evidence[0], url: 'https://example.org/quake/2' }] });
     second.identities = collectorIdentities(second.event);
     const committed = await store.commitBatch(randomUUID(), [first, second]);
+    const lookups = await lookupCollectorIdentities(pool,
+      [first.identities, [...first.identities, ...second.identities], second.identities], async () => {});
+    expect(lookups[0].map(row => row.id)).toEqual([committed.events[0].id]);
+    expect(lookups[1].map(row => row.id).sort()).toEqual(committed.events.map(row => row.id).sort());
+    expect(lookups[2].map(row => row.id)).toEqual([committed.events[1].id]);
     const before = await new DurableEventReader(pool).bootstrap();
     const signal = { ...first.event, evidence: [...first.event.evidence, ...second.event.evidence] };
     await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', ['diagnostic', JSON.stringify(signal)]);
