@@ -24,3 +24,19 @@ it('rejects changed payloads, unsupported versions and broken files', () => {
   expect(() => replayIdentitySnapshot(null)).toThrow();
   expect(() => replayIdentitySnapshot({})).toThrow();
 });
+
+it('classifies saved supersession separately without hiding parents that still have links', () => {
+  const report = fixture().data.report;
+  report.snapshotData.requested_event_ids = ['replaced', 'linked', 'empty', 'missing-parent'];
+  report.snapshotData.events = [
+    { id: 'replaced', payload: { replaced_by: ['child'] } },
+    { id: 'linked', payload: { replaced_by: ['other-child'] } },
+    { id: 'empty', payload: { replaced_by: [] } },
+  ];
+  report.snapshotData.links = [{ event_id: 'linked', source_id: 'gdacs', upstream_id: 'unknown', revision: '1' }];
+  const replay = replayIdentitySnapshot(createIdentitySnapshot(report));
+  expect(replay.reconciliation.superseded_events).toEqual([{ event_id: 'replaced', replaced_by: ['child'] }]);
+  expect(replay.reconciliation.unresolved_event_ids).toEqual(['empty', 'missing-parent']);
+  expect(replay.reconciliation.groups[0].stored_event_id).toBe('linked');
+  expect(replay.reconciliation.groups[0].action).toBe('manual_review');
+});

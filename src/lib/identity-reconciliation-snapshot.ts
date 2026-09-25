@@ -27,14 +27,22 @@ export function replayIdentitySnapshot(value: unknown) {
       !Array.isArray(data.events) || !Array.isArray(data.requested_event_ids)) throw new Error('Invalid snapshot structure');
   const groups = planIdentityReconciliation(data.signals, data.links);
   const found = new Set(groups.map(group => group.stored_event_id));
+  // A supersession marker explains absent parent links; this is not a fresh verification of children.
+  const superseded = data.events.filter(event => {
+    const ids: unknown = event.payload?.replaced_by;
+    return Array.isArray(ids) && ids.length > 0 && ids.every(id => typeof id === 'string' && id !== event.id) &&
+      !data.links.some(link => link.event_id === event.id);
+  }).map(event => ({ event_id: event.id, replaced_by: event.payload.replaced_by as string[] }));
+  const supersededIds = new Set(superseded.map(event => event.event_id));
   const { snapshotData: omitted, ...base } = report;
   void omitted;
   return { ...base, snapshot_checksum: snapshot.checksum, algorithm: ALGORITHM_VERSION,
     reconciliation: { ...report.reconciliation, groups,
-      unresolved_event_ids: data.requested_event_ids.filter(id => !found.has(id)),
+      superseded_events: superseded,
+      unresolved_event_ids: data.requested_event_ids.filter(id => !found.has(id) && !supersededIds.has(id)),
       notes: [...report.reconciliation.notes,
         'Replayed from a fixed snapshot; current time and live database were not consulted.',
-        'Requested events with no stored identity links remain unresolved; absence is not resolution.',
+        'Requested events without identity links remain unresolved unless a saved supersession marker exists; child integrity is not reverified by replay.',
         'Checksum detects accidental changes; it does not authorize applying this plan.'] } };
 }
 

@@ -884,7 +884,12 @@ be running. Pass earlier reports to preserve their affected event IDs even when
 observations have left the 48-hour window. The export uses a single repeatable-read,
 read-only transaction and includes retained analysis inputs, all identity links
 for affected parents, current parent payloads and their full revision history.
-It cannot recover observations already unavailable in the analysis window.
+For affected identities it also reads matching observations outside the 48-hour
+window, preserving their actual observation times. It cannot recover deleted rows.
+`observation_coverage` distinguishes `in_window`, `outside_window` and
+`not_found_in_signal_store`; the latter does not establish why a row is absent.
+`signal_count` still describes the live window; `analysis_signal_count` includes
+historical matches. Live conflict counts are not a full historical audit.
 Limits (10,000 signals / 100,000 links / 100,000 revisions) fail the export instead
 of silently truncating it. The snapshot is local diagnostic data, not a DB backup;
 it contains source text and URLs, so share the generated review rather than the snapshot.
@@ -897,7 +902,11 @@ node --import tsx tools/identity-reconciliation-snapshot.ts replay identity-revi
 Both commands write UTF-8 directly and refuse to overwrite an existing output.
 Replay requires no database connection and uses the frozen inputs without current
 time. It verifies the format, algorithm version and checksum. Missing parent
-identity links appear in `unresolved_event_ids`; missing observations remain
+identity links appear in `unresolved_event_ids`, except parents with a saved
+`replaced_by` marker and no remaining identity links, listed in `superseded_events`.
+This classification does not reverify their children (use package `verify` for that).
+Old snapshots remain readable but replay cannot add observations absent from the file.
+Missing observations remain
 blockers. Keep the snapshot with the matching code version. Checksums detect
 accidental modification, not authenticity or authorization. Snapshot export and
 replay do not change database rows.
