@@ -75,7 +75,12 @@ test('camera stays inside real dashboard workspace with news open, closed and ex
   await page.screenshot({ path: 'test-results/camera-dashboard-expanded.png' });
   await page.setViewportSize({ width: 1000, height: 800 });
   await withinWorkspace();
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  await withinWorkspace();
   await page.screenshot({ path: 'test-results/camera-dashboard-narrow.png' });
+  await page.getByRole('button', { name: 'Close cameras' }).click();
+  await expect(camera).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Close side panel', exact: true })).toBeVisible();
 });
 
 test('failed snapshots have one compact badge without broken-image text', async ({ page }) => {

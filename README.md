@@ -1084,4 +1084,7 @@ vignette or corner overlays. Nearby autoplay includes direct MP4/HLS/MJPEG feeds
 provider iframe pages require selecting that camera and are not opened as automatic
 neighbors. Initial diagnostic requests are briefly deferred so rapid tile removal
 and development StrictMode do not immediately start and abort redundant requests.
-Browser regression tests exercise the real DashboardShell with its Events panel.
+While cameras and Events share a narrow desktop view, the drawer backdrop is
+suppressed so it cannot dim the video or intercept camera controls; closing the
+camera restores normal drawer behavior. Browser regression tests exercise the
+real DashboardShell with its Events panel.
