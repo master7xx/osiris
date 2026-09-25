@@ -920,6 +920,31 @@ blockers. Keep the snapshot with the matching code version. Checksums detect
 accidental modification, not authenticity or authorization. Snapshot export and
 replay do not change database rows.
 
+### Preserve historical identity review holds
+
+Snapshot exports also retain semantic pair findings from supplied previous reports.
+`historical_pair_reviews` records the original pair, distance, time difference and
+report time. A group remains blocked by `historical_pair_requires_review` even if
+new provider coordinates/time no longer trigger proximity checks, or its counterpart
+has no remaining observations. Missing-observation blockers alone are not permanent:
+newly available observations can resolve them. Already superseded parents remain
+separately classified; no historical hold authorizes a new split.
+
+To enrich an existing local snapshot without accessing PostgreSQL:
+
+```powershell
+node --import tsx tools/identity-reconciliation-snapshot.ts annotate identity-snapshot-with-history.json identity-history-snapshot.json identity-review-fixed.json
+node --import tsx tools/identity-reconciliation-snapshot.ts replay identity-review-with-history.json identity-snapshot-with-history.json
+```
+
+The original snapshot is preserved; output files must not exist. Use the enriched
+snapshot for subsequent package building so historical holds are also excluded from
+split packages. New exports/replay use `hazard-pair-review-v2`; v1 snapshots remain
+readable by the new code, but old tooling cannot read newly created v2 snapshots.
+Only supplied reports can contribute prior findings. These read-only tools have no
+automatic or command-line override for clearing semantic holds; resolution requires
+a separately reviewed change. Previous split packages are not altered or reapplied.
+
 ### Concrete split package and read-only preflight
 
 Use the existing fixed snapshot to build proposed child payloads and exact identity
