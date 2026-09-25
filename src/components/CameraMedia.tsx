@@ -23,7 +23,7 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
   const snapshot = snapshotUrl(camera);
   const resolveUrl = !overview && (needsResolution(camera) || liveFeedAtSource(camera)) ? camera.external_url : undefined;
   const embed = localEmbed(camera) || resolution?.embed;
-  const kind = overview ? 'jpg' : embed ? 'iframe' : camera.stream_type || 'jpg';
+  const kind = overview ? 'jpg' : embed ? 'iframe' : (camera.stream_type || 'jpg').toLowerCase();
   const url = overview ? snapshot : embed || camera.stream_url || snapshot;
   const unavailable = ['offline', 'missing'].includes(resolution?.kind || '');
   useEffect(() => {
@@ -98,7 +98,7 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
     </>}
     <div className={`absolute right-1 top-1 z-30 max-w-[95%] bg-black/85 px-1.5 py-1 text-[9px] font-mono ${color}`} role="status">
       <div>{format} · {label}</div>
-      {check && <div className="text-white/65" title={`Server HEAD check: ${check.checkedAt || 'not checked'}. Does not verify playback or capture time.`}>SERVER {check.httpStatus ? `HTTP ${check.httpStatus}` : check.state}{check.checkedAt ? ` · ${new Date(check.checkedAt).toISOString().slice(11, 19)}Z` : ''}</div>}
+      {check && <div className={check.httpStatus && check.httpStatus >= 400 ? 'text-amber-300' : 'text-white/65'} title={`Server HEAD check: ${check.checkedAt || 'not checked'}. Does not verify playback or capture time.`}>SERVER {check.httpStatus ? `HTTP ${check.httpStatus}` : check.state}{check.checkedAt ? ` · ${new Date(check.checkedAt).toISOString().slice(11, 19)}Z` : ''}</div>}
     </div>
     {!overview && camera.external_url && <a href={camera.external_url} target="_blank" rel="noopener noreferrer" className="absolute bottom-9 left-2 z-30 bg-black/80 px-2 text-xs text-sky-300">Open source</a>}
     {!overview && (failed || label === 'TIMEOUT') && <button className="absolute bottom-9 right-2 z-30 bg-black/80 px-2 text-xs" onClick={() => { setState('CONNECTING'); setRevision(Date.now()); }}>Retry</button>}
