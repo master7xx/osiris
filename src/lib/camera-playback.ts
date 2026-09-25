@@ -5,6 +5,7 @@ export interface PlaybackCamera {
 export function snapshotUrl(camera: PlaybackCamera): string | undefined {
   const kind = (camera.stream_type || 'jpg').toLowerCase();
   // A feed URL may itself be an MJPEG stream. Never start it in overview mode.
+  if (kind === 'mjpeg' || (kind !== 'jpg' && camera.feed_url === camera.stream_url)) return undefined;
   return kind === 'jpg' ? camera.feed_url || camera.stream_url
     : /\.(jpe?g|png|webp)(?:[?#]|$)/i.test(camera.feed_url || '') ? camera.feed_url : undefined;
 }

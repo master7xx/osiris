@@ -3,6 +3,7 @@ import { clipUrl, mediaErrorLabel, nearbyCameras, snapshotUrl } from './camera-p
 describe('client camera selection', () => {
   it('never starts a stream just to produce an overview', () => {
     expect(snapshotUrl({ stream_type: 'mjpeg', feed_url: 'https://x/stream' })).toBeUndefined();
+    expect(snapshotUrl({ stream_type: 'mjpeg', feed_url: 'https://x/stream.jpg' })).toBeUndefined();
     expect(snapshotUrl({ stream_type: 'hls', stream_url: 'https://x/live.m3u8' })).toBeUndefined();
     expect(snapshotUrl({ stream_type: 'mp4', feed_url: 'https://x/frame.jpg' })).toBe('https://x/frame.jpg');
   });
