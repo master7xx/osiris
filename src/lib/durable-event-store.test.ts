@@ -1,3 +1,4 @@
+import { createEventDatabasePool } from './event-database-pool';
 import { lookupCollectorIdentities } from './collector-identity-lookup';
 import { recordCollectorOutcome } from './collector-outcome';
 import { applyIdentityPackage, verifyIdentityPackage } from './apply-identity-package';
@@ -42,6 +43,28 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
+
+  it('replaces a terminated idle connection and can commit again', async () => {
+    const runtime = createEventDatabasePool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 }, 'collector');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const first = await runtime.query('SELECT pg_backend_pid() AS pid');
+      const pid = first.rows[0].pid;
+      // Kill only this test-owned idle backend, never the database or other sessions.
+      expect((await pool.query('SELECT pg_terminate_backend($1) AS stopped', [pid])).rows[0].stopped).toBe(true);
+      await vi.waitFor(() => expect(log).toHaveBeenCalledWith('[events:collector] Idle database connection lost; the next operation will reconnect.'));
+      const second = await runtime.query('SELECT pg_backend_pid() AS pid');
+      expect(second.rows[0].pid).not.toBe(pid);
+      const lease = await acquireCollectorLease(runtime, randomUUID());
+      expect(lease).not.toBeNull();
+      await new DurableEventStore(runtime).commitBatch(randomUUID(), [write()], lease!);
+      expect((await new DurableEventReader(runtime).bootstrap()).events).toHaveLength(1);
+      // Active SQL errors must still reject normally, not be swallowed by the idle handler.
+      await expect(runtime.query('SELECT 1 / 0')).rejects.toMatchObject({ code: '22012' });
+      expect((await runtime.query('SELECT 1 AS ok')).rows[0].ok).toBe(1);
+      await releaseCollectorLease(runtime, lease!);
+    } finally { await runtime.end(); log.mockRestore(); }
+  });
 
   it('keeps identities, replay and history stable across 60 observation cycles and a writer restart', async () => {
     const reader = new DurableEventReader(pool);
