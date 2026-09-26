@@ -18,6 +18,12 @@ function EventRecoveryHarness() {
     <ul>{events.snapshot?.events.map(event => <li key={event.id}>{event.title}</li>)}</ul>
   </main>;
 }
+function VariantHarness() {
+  const still = { id: 'windy-predeal', name: 'Predeal', lat: 45.47811, lng: 25.564, feed_url: 'https://imgproxy.windy.com/_/full/plain/current/1357151208/original.jpg' };
+  const live = { id: 'digi-predeal', name: 'Predeal - Digi Live', lat: 45.47811, lng: 25.564, stream_type: 'hls', stream_url: 'https://digilive.rcs-rds.ro/digilivedge/predeal_desktop.stream/index.m3u8' };
+  const [selected, setSelected] = useState<typeof still | typeof live | null>(still);
+  return <><CameraViewer camera={selected} cameras={[still, live]} onSelect={() => setSelected(live)} onClose={() => setSelected(null)} /></>;
+}
 function Harness() {
   const [selected, setSelected] = useState<number | null>(null);
   const shell = new URLSearchParams(location.search).has('shell');
@@ -27,4 +33,4 @@ function Harness() {
   </>;
   return shell ? <WorldEventsProvider onMapSelect={() => {}}><DashboardShell mobile={false} navigationVisible onShowNavigation={() => {}} navigation={() => <div>Layers</div>} news={<div>World events fixture</div>} status={null} search={null}>{content}</DashboardShell></WorldEventsProvider> : content;
 }
-createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('events') ? <WorldEventsProvider onMapSelect={() => {}}><EventRecoveryHarness /></WorldEventsProvider> : <Harness />);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('events') ? <WorldEventsProvider onMapSelect={() => {}}><EventRecoveryHarness /></WorldEventsProvider> : new URLSearchParams(location.search).has('variants') ? <VariantHarness /> : <Harness />);

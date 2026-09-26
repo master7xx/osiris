@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   clearDebugEvents,
+  isDebugFailure as isFailure,
   getDebugEventsSnapshot,
   getDebugEventsVersion,
   subscribeDebugEvents,
@@ -35,11 +36,6 @@ function statusLabel(event: DebugRequestEvent) {
   if (event.status === 'ok') return String(event.httpStatus ?? 'OK');
   if (event.status === 'aborted') return 'ABORT';
   return event.httpStatus ? String(event.httpStatus) : 'ERR';
-}
-
-function isFailure(event: DebugRequestEvent) {
-  return event.status === 'error' || event.status === 'aborted' ||
-    (event.upstreams || []).some(upstream => upstream.state === 'error' || upstream.state === 'aborted');
 }
 
 function isSlow(event: DebugRequestEvent) {
@@ -205,12 +201,12 @@ export default function DebugOverlay() {
               <tbody>
                 {filtered.flatMap(event => {
                   const elapsed = event.status === 'pending' ? Math.max(0, now - event.startedAt) : event.durationMs;
-                  const failed = event.status === 'error' || event.status === 'aborted';
+                  const failed = event.status === 'error';
                   const slowMain = Number(elapsed || 0) >= SLOW_MS;
                   const main = (
                     <tr key={event.id} style={{ background: failed ? 'rgba(127,29,29,.18)' : slowMain ? 'rgba(120,78,10,.12)' : undefined }}>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234' }}>{new Date(event.startedAt).toLocaleTimeString()}</td>
-                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234', color: failed ? '#FF7B86' : event.status === 'pending' ? CYAN : '#5EE6A8' }}>{statusLabel(event)}</td>
+                      <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234', color: failed ? '#FF7B86' : event.status === 'aborted' ? '#FFCA62' : event.status === 'pending' ? CYAN : '#5EE6A8' }}>{statusLabel(event)}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234' }}>{event.method}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234', color: isNews(event) ? '#9EEBFF' : '#E8F4FF' }}>{event.endpoint}{event.upstreams?.length ? ` · ${event.upstreams.length} upstream` : ''}</td>
                       <td style={{ padding: '6px 8px', borderBottom: '1px solid #132234', color: slowMain ? '#FFCA62' : undefined }}>{formatMs(elapsed)}</td>

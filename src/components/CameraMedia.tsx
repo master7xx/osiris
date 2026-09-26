@@ -29,10 +29,12 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
   useEffect(() => {
     if (!resolveUrl) return;
     const controller = new AbortController();
-    fetch(`/api/cctv/resolve?url=${encodeURIComponent(resolveUrl)}`, { signal: controller.signal }).then(r => r.json()).then(d => {
-      setResolution({ embed: d.embeddable ? d.embedUrl : undefined, kind: d.kind });
-    }).catch(() => {});
-    return () => controller.abort();
+    const timer = setTimeout(() => {
+      fetch(`/api/cctv/resolve?url=${encodeURIComponent(resolveUrl)}`, { signal: controller.signal }).then(r => r.json()).then(d => {
+        if (!controller.signal.aborted) setResolution({ embed: d.embeddable ? d.embedUrl : undefined, kind: d.kind });
+      }).catch(() => {});
+    }, 150);
+    return () => { clearTimeout(timer); controller.abort(); };
   }, [resolveUrl]);
   useEffect(() => {
     if (!camera.id) return;
@@ -83,7 +85,7 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
     return () => clearTimeout(timer);
   }, [url, kind, revision]);
   const label = unavailable ? 'OFFLINE AT SOURCE' : !url ? (resolveUrl && !resolution ? 'RESOLVING' : 'EXTERNAL') : state;
-  const failed = ['NETWORK', 'DECODE', 'UNSUPPORTED', 'MEDIA', 'LOAD FAILED', 'OFFLINE AT SOURCE'].includes(label);
+  const failed = ['NETWORK', 'DECODE', 'UNSUPPORTED', 'MEDIA', 'LOAD FAILED', 'OFFLINE AT SOURCE', 'TIMEOUT'].includes(label);
   const color = failed ? 'text-red-300' : label === 'PLAYING' ? 'text-green-300' : ['LOADED', 'EMBED LOADED'].includes(label) ? 'text-sky-300' : 'text-amber-300';
   const format = kind === 'mp4' ? 'CLIP' : kind === 'jpg' ? 'SNAPSHOT' : kind.toUpperCase();
   return <div className="relative h-full w-full bg-black text-white">
