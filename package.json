@@ -16,6 +16,7 @@
     "test:live": "node tools/run-live-tests.mjs",
     "doctor": "node tools/windows-doctor.mjs",
     "smoke:windows": "node tools/windows-smoke.mjs",
+    "events:benchmark-fusion": "node --import tsx tools/fusion-benchmark/run.ts",
     "events:collect": "node --import tsx tools/collect-events.ts",
     "events:migrate": "node tools/migrate-events.mjs",
     "test:event-store": "node tools/test-event-store.mjs",

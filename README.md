@@ -1226,3 +1226,42 @@ sync delay. Timing logs remain in the collector terminal/container logs; they ar
 not persisted in PostgreSQL or included in the browser debug export. No schema
 migration is needed, and structured timing lines contain no event bodies, source
 URLs, credentials or raw error messages.
+
+### Fusion candidate indexing and equivalence checks
+
+Fusion prepares digest flags, title tokens, timestamps, evidence URLs and explicit
+provider report keys once per signal per call. Candidate indexes cover adapter
+IDs, provider report keys, URLs and adjacent eight-hour time buckets. Signals
+with explicit provider keys cannot enter URL/fuzzy matching; two NWS reports
+without a shared identity/URL cannot enter fuzzy matching. The final predicate,
+whole-cluster hazard veto and earliest matching cluster order remain unchanged.
+Every appended cluster member is indexed, including bridge reports. Indexes are
+local to one call and do not persist signals or change durable identities.
+
+The collector now emits `fusion_profile` with `prepare_ms`, `match_ms`,
+`finalize_ms`, valid signal/cluster counts, `candidate_clusters` (candidate set
+sizes before the first-match short circuit) and actual predicate `comparisons`.
+The enclosing `fusion` stage also includes observation and identity preparation,
+so its duration can exceed the profile total. `identity_conflicts` separates
+`multiple_stored_events` (one candidate links to multiple stored events) from
+`repeated_stored_event` (a stored event was already accepted earlier this cycle).
+These are aggregate console diagnostics, not a browser debug export or automatic
+reconciliation. The skip policy and historical records are unchanged; a skipped
+ambiguous candidate does not reserve any stored ID.
+
+Run the deterministic, synthetic benchmark without a database or network:
+
+```bash
+npm run events:benchmark-fusion
+# Optional input sizes, each between 1 and 20000:
+npm run events:benchmark-fusion -- 1000 3000 5600
+```
+
+It compares complete output with the frozen pre-optimization reference under
+`tools/fusion-benchmark/reference.ts`, for both mixed fuzzy/duplicate data and
+high-cardinality explicit provider reports. A mismatch fails the command;
+reported timings are environment/workload dependent and do not predict live
+collector duration. Unit tests also cover greedy cluster order, hazard vetoes,
+identity precedence, time boundaries, input mutation and aggregate profiling.
+The reference is test/benchmark-only. Refresh intervals, the stale threshold,
+retention, database schema and camera behavior are unaffected.

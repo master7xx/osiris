@@ -1,3 +1,5 @@
+import type { FusionProfile } from './event-fusion';
+import type { IdentityConflictReason } from './collector-identity-conflict';
 export type CollectorStage = 'lease' | 'sources' | 'signals_write' | 'signals_read' | 'fusion' | 'identities' | 'prepare' | 'commit' | 'outcome' | 'release';
 export type CollectorCycleResult = 'success' | 'failed' | 'skipped' | 'cancelled';
 export interface CollectorCycleCounts { input_signals: number; retained_signals: number; candidates: number; processed_events: number; committed_batches: number; skipped_conflicts: number }
@@ -21,6 +23,17 @@ export function collectorCycleLog(cycleId: string, emit = (line: string) => cons
       write({ event: 'stage_start', stage, elapsed_ms: elapsed(started), stages_ms: { ...stages } });
     },
     currentStage: () => stage,
+    fusion(profile: FusionProfile) {
+      if (finished) return;
+      write({ event: 'fusion_profile', prepare_ms: profile.prepare_ms, match_ms: profile.match_ms,
+        finalize_ms: profile.finalize_ms, valid_signals: profile.valid_signals, clusters: profile.clusters,
+        candidate_clusters: profile.candidate_clusters, comparisons: profile.comparisons });
+    },
+    conflicts(reasons: Record<IdentityConflictReason, number>) {
+      if (finished) return;
+      write({ event: 'identity_conflicts', multiple_stored_events: reasons.multiple_stored_events,
+        repeated_stored_event: reasons.repeated_stored_event });
+    },
     finish(result: CollectorCycleResult, counts: CollectorCycleCounts, failedStage?: CollectorStage) {
       if (finished) return;
       closeStage(); finished = true;

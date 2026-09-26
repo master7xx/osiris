@@ -39,3 +39,12 @@ it.each(['skipped', 'cancelled'] as const)('reports %s without claiming a succes
   f.log.finish(result, { input_signals: 0, retained_signals: 0, candidates: 0, processed_events: 0, committed_batches: 0, skipped_conflicts: 0 });
   expect(f.lines.at(-1)).toMatchObject({ result, processed_events: 0, committed_batches: 0 });
 });
+it('emits aggregate fusion and conflict diagnostics without payloads or identity keys', () => {
+  const f = fixture();
+  f.log.fusion({ prepare_ms: 1, match_ms: 20, finalize_ms: 3, valid_signals: 5000, clusters: 4900,
+    candidate_clusters: 20000, comparisons: 19000, secret: 'private report' } as Parameters<typeof f.log.fusion>[0]);
+  f.log.conflicts({ multiple_stored_events: 3, repeated_stored_event: 5, secret: 'private identity' } as Parameters<typeof f.log.conflicts>[0]);
+  expect(f.lines.at(-2)).toMatchObject({ event: 'fusion_profile', comparisons: 19000 });
+  expect(f.lines.at(-1)).toMatchObject({ event: 'identity_conflicts', multiple_stored_events: 3, repeated_stored_event: 5 });
+  expect(JSON.stringify(f.lines)).not.toContain('private');
+});

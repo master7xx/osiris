@@ -1,3 +1,4 @@
+import { identityConflictReason } from './collector-identity-conflict';
 import { splitPayloadHash } from './reviewed-event-split';
 import { planIdentityReconciliation } from './identity-reconciliation-plan';
 import { createHash } from 'node:crypto';
@@ -27,9 +28,10 @@ export function inspectIdentityConflicts(candidates: { id: string; identities: I
     }));
     const ids = [...new Set(links.flatMap(link => link.events.map(event => event.id)))];
     const previous = ids.length === 1 ? accepted.get(ids[0]) : undefined;
-    if (ids.length > 1 || previous !== undefined) {
+    const reason = identityConflictReason(ids, accepted);
+    if (reason) {
       conflicts.push({ position, candidate_fingerprint: fingerprint(candidate.id),
-        reason: ids.length > 1 ? 'multiple_stored_events' : 'repeated_stored_event',
+        reason,
         earlier_accepted_position: previous ?? null, links });
     } else if (ids.length === 1) accepted.set(ids[0], position);
   }

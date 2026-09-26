@@ -1,3 +1,4 @@
+import { identityConflictReason } from '../src/lib/collector-identity-conflict';
 import { collectorCycleLog, type CollectorStage, type CollectorCycleResult } from '../src/lib/collector-cycle-log';
 import { persistCollectorSignals } from '../src/lib/collector-signal-store';
 import { lookupCollectorIdentities } from '../src/lib/collector-identity-lookup';
@@ -47,7 +48,7 @@ try {
         cycle.stage('fusion');
         const observedAt = observationIndex(signalRows);
         const signals = signalRows.map(row => row.payload as IncomingEvent);
-        const fused = fuseEvents(signals, { now: Date.now(), limit: signals.length });
+        const fused = fuseEvents(signals, { now: Date.now(), limit: signals.length, onProfile: profile => cycle.fusion(profile) });
         const identityGroups = fused.map(collectorIdentities);
         counts.candidates = fused.length;
         cycle.stage('identities');
@@ -59,6 +60,7 @@ try {
         const writes: EventWrite[] = [];
         const seen = new Set<string>();
         let conflicts = 0;
+        const conflictReasons = { multiple_stored_events: 0, repeated_stored_event: 0 };
         let prepared = 0;
         for (const [position, event] of fused.entries()) {
           if (prepared++ % 100 === 0) {
@@ -67,11 +69,13 @@ try {
           }
           const identities = identityGroups[position];
           const rows = storedMatches[position];
-          if (rows.length > 1 || rows[0] && seen.has(rows[0].id)) { conflicts++; continue; }
+          const reason = identityConflictReason(rows.map(row => row.id), seen);
+          if (reason) { conflicts++; conflictReasons[reason]++; continue; }
           if (rows[0]) seen.add(rows[0].id);
           writes.push({ identities, event, observedAt: observedAt(event), expectedRevision: rows[0]?.revision ?? null });
         }
         counts.skipped_conflicts = conflicts;
+        cycle.conflicts(conflictReasons);
         if (!writes.length && conflicts) throw new Error('All candidates require identity reconciliation');
         cycle.stage('commit');
         for (const batch of batches(writes)) {
