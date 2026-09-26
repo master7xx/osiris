@@ -1,3 +1,4 @@
+import { persistCollectorSignals } from './collector-signal-store';
 import { createEventDatabasePool } from './event-database-pool';
 import { lookupCollectorIdentities } from './collector-identity-lookup';
 import { recordCollectorOutcome } from './collector-outcome';
@@ -43,6 +44,62 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
+
+  it('batches observations with last duplicate winning, retaining absent sources and their timestamps', async () => {
+    const lease = (await acquireCollectorLease(pool, randomUUID()))!;
+    await pool.query(`INSERT INTO osiris_events.signals(id,payload,observed_at) VALUES
+      ('absent','{}',clock_timestamp()-interval '1 hour')`);
+    const before = (await pool.query("SELECT observed_at FROM osiris_events.signals WHERE id='absent'")).rows[0].observed_at;
+    const signals = Array.from({ length: 205 }, (_, n) => event({ id: `signal-${n}` }));
+    signals[1] = { ...signals[0], title: 'Within batch duplicate' };
+    signals.push({ ...signals[0], title: 'Across batch final duplicate' });
+    await persistCollectorSignals(pool, lease, signals);
+    const rows = (await pool.query('SELECT id,payload,observed_at FROM osiris_events.signals')).rows;
+    expect(rows).toHaveLength(205);
+    expect(rows.find(row => row.payload.id === 'signal-0').payload.title).toBe('Across batch final duplicate');
+    expect(rows.find(row => row.id === 'absent').observed_at).toEqual(before);
+    expect(rows.filter(row => row.id !== 'absent').every(row => row.observed_at > before)).toBe(true);
+    await persistCollectorSignals(pool, lease, [{ ...signals[0], title: 'Next cycle' }]);
+    expect((await pool.query("SELECT payload FROM osiris_events.signals WHERE payload->>'id'='signal-0'")).rows[0].payload.title).toBe('Next cycle');
+  });
+
+  it('rolls back earlier signal batches when a later PostgreSQL write fails', async () => {
+    const lease = (await acquireCollectorLease(pool, randomUUID()))!;
+    await persistCollectorSignals(pool, lease, [event({ title: 'Keep original' })]);
+    const before = (await pool.query('SELECT * FROM osiris_events.signals')).rows;
+    const signals = [event({ title: 'Should roll back' }), ...Array.from({ length: 100 }, (_, n) => event({ id: `new-${n}` }))];
+    signals[100] = { ...signals[100], title: 'PostgreSQL rejects null byte\u0000' };
+    await expect(persistCollectorSignals(pool, lease, signals)).rejects.toThrow();
+    expect((await pool.query('SELECT * FROM osiris_events.signals')).rows).toEqual(before);
+  });
+
+  it('rolls back signal writes if the lease expires before the final commit check', async () => {
+    const lease = (await acquireCollectorLease(pool, randomUUID()))!;
+    const client = await pool.connect();
+    const expiringPool = { connect: async () => ({
+      query: async (sql: string, args?: unknown[]) => {
+        const result = await client.query(sql, args);
+        if (sql.startsWith('DELETE FROM osiris_events.signals')) {
+          await client.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()-interval '1 second'");
+        }
+        return result;
+      },
+      release: () => client.release(),
+    }) } as unknown as pg.Pool;
+    await expect(persistCollectorSignals(expiringPool, lease, [event()])).rejects.toThrow('Collector lease expired');
+    expect((await pool.query('SELECT * FROM osiris_events.signals')).rows).toEqual([]);
+  });
+
+  it('rejects expired signal writers, including empty cycles, and accepts the new lease owner', async () => {
+    const old = (await acquireCollectorLease(pool, randomUUID()))!;
+    await pool.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()-interval '1 second'");
+    const current = (await acquireCollectorLease(pool, randomUUID()))!;
+    await expect(persistCollectorSignals(pool, old, [event()])).rejects.toThrow('Collector lease expired');
+    await expect(persistCollectorSignals(pool, old, [])).rejects.toThrow('Collector lease expired');
+    expect((await pool.query('SELECT * FROM osiris_events.signals')).rows).toEqual([]);
+    await persistCollectorSignals(pool, current, [event()]);
+    expect((await pool.query('SELECT * FROM osiris_events.signals')).rows).toHaveLength(1);
+  });
 
   it('replaces a terminated idle connection and can commit again', async () => {
     const runtime = createEventDatabasePool({ connectionString: databaseUrl, max: 1, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 }, 'collector');
