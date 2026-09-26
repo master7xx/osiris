@@ -1134,3 +1134,30 @@ HTTP request alone does not establish fresh source data. Missing health is `null
 The freshness threshold remains three minutes, shared with the feed UI. The new
 summary includes no event bodies, evidence lists or replay cursors and makes no
 additional network requests. Existing request-log fields remain unchanged.
+
+
+### Source failures and GDELT discovery pacing
+
+GDELT discovery runs its four existing queries sequentially with at least five
+seconds between request starts and a ten-second timeout per request. Concurrent
+calls share one in-flight batch within the process. On failure, the batch stops;
+completed queries remain a partial result, while an entirely failed batch stays
+unavailable. It does not replay old articles as fresh observations.
+
+Retries happen on later collection cycles, with backoff from 90 seconds to a
+15-minute cap. HTTP 429/503 Retry-After (seconds or HTTP date) can extend that
+pause. Calls during the pause perform no network request. After a failure, the
+next cycle starts with the following topic to prevent starvation; a fully
+successful batch resets backoff. State is process-local and resets on restart;
+separate processes are not coordinated by this limiter.
+
+Core and supplemental source health now retain structured failure kinds:
+`timeout`, `http`, `network`, `invalid_response`, `cancelled` or `unknown`.
+DEBUG exports include the safe kind, HTTP status when known and GDELT retry time,
+without raw provider exception text. Existing health states remain healthy,
+partial or error; a paused failed source is never labeled healthy.
+
+Windows dev and production smoke tests also request camera diagnostics with an
+unknown ID and require a JSON UNKNOWN response, alongside health and event sync.
+These deterministic tests do not establish live GDELT availability or diagnose
+older failures whose detailed causes were not recorded.

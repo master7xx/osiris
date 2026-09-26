@@ -7,7 +7,7 @@ test('rejects damaged cache, retains a coherent checkpoint on outage and recover
     first_seen_at: time, last_seen_at: time, location_confidence: 0, severity: 60, priority_score: 60,
     confidence: 'unconfirmed', status: 'active', evidence: [], sources: [], source_count: 0,
     independent_sources: 0, evidence_weight: 0, urls: [], tags: [], age_minutes: 0 };
-  const collector = { last_success_at: time, source_health: [] };
+  const collector = { last_success_at: time, source_health: [{ id: 'gdelt-doc', label: 'GDELT', state: 'error', ok: false, duration_ms: 10, events: 0, source_count: 1, healthy_sources: 0, failure: { kind: 'http', http_status: 429, retry_at: time } }] };
   // Structurally readable cache, but missing change_sequence: old validation accepted it.
   const broken = { version: 1, mode: 'durable', savedAt: Date.now(), cursor: 'broken',
     feed: { events: [{ ...event, title: 'Damaged cache event', fused_id: 'a', lifecycle: 'ongoing',
@@ -53,6 +53,7 @@ test('rejects damaged cache, retains a coherent checkpoint on outage and recover
     feedGeneratedAt: time, counts: { total: 1 }, freshness: { stale: true } });
   expect(report.eventIngest.checkpointSavedAt).toBe(new Date(before.savedAt).toISOString());
   expect(report.eventIngest.events).toBeUndefined();
+  expect(report.eventIngest.sources[0].failure).toEqual({ kind: 'http', httpStatus: 429, retryAt: time });
   await page.keyboard.press('Control+Shift+d');
   phase = 'recovery';
   await page.evaluate(() => window.dispatchEvent(new Event('online')));

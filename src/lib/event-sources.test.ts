@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseGdacsRss, parseGdeltArticles, parseUsgsEarthquakes } from './event-sources';
+import { collectEventSources, parseGdacsRss, parseGdeltArticles, parseUsgsEarthquakes } from './event-sources';
 
 describe('global event source parsers', () => {
   it('maps GDELT article discovery into normalized events and reuses known-place geolocation', () => {
@@ -71,4 +71,16 @@ describe('global event source parsers', () => {
     expect(parseUsgsEarthquakes({ features: [{ id: 'x', geometry: {}, properties: { mag: 5 } }] })).toEqual([]);
     expect(parseGdacsRss('<rss><item><title>Missing coordinates</title></item></rss>')).toEqual([]);
   });
+});
+
+
+it('keeps working sources when another times out and preserves the typed cause', async () => {
+  const result = await collectEventSources([
+    { id: 'failed', label: 'Failed', fetch: async () => { throw new DOMException('timeout', 'TimeoutError'); } },
+    { id: 'healthy', label: 'Healthy', fetch: async () => ({ events: [] }) },
+  ]);
+  expect(result.healthy_sources).toBe(1);
+  expect(result.source_count).toBe(2);
+  expect(result.health[0]).toMatchObject({ state: 'error', failure: { kind: 'timeout' } });
+  expect(result.health[1].state).toBe('healthy');
 });

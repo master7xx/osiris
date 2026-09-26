@@ -1,3 +1,4 @@
+import { sourceFailure } from './source-failure';
 import { fetchKevEvents } from './cisa-kev';
 import { fetchSwpcEvents } from './swpc-alerts';
 import { fetchNwsEvents } from './nws-alerts';
@@ -427,6 +428,7 @@ async function runAdapter(adapter: SignalAdapter): Promise<{ events: IncomingEve
         source_count: 1,
         healthy_sources: 0,
         error: message,
+        failure: sourceFailure(error),
       },
     };
   }

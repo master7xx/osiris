@@ -1,4 +1,5 @@
 'use client';
+import type { SourceFailureInfo } from './source-failure';
 
 export type ClientEventSourceState = 'healthy' | 'partial' | 'error';
 
@@ -12,6 +13,7 @@ export interface ClientEventSourceHealth {
   source_count: number;
   healthy_sources: number;
   error?: string;
+  failure?: SourceFailureInfo;
 }
 
 export interface ClientEventIngestSnapshot {

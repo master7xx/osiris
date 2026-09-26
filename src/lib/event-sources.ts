@@ -1,3 +1,5 @@
+import { createGdeltDiscovery } from './gdelt-discovery';
+import { sourceFailure, type SourceFailureInfo } from './source-failure';
 import { isNewsDigest } from './event-text';
 import { aggregateNews, locateArticle, newsSourceTransport, type NewsItem } from './news-aggregator';
 import {
@@ -18,6 +20,7 @@ export interface EventSourceHealth {
   source_count: number;
   healthy_sources: number;
   error?: string;
+  failure?: SourceFailureInfo;
 }
 
 interface AdapterOutput {
@@ -25,6 +28,7 @@ interface AdapterOutput {
   source_count?: number;
   healthy_sources?: number;
   degraded?: string;
+  failure?: SourceFailureInfo;
 }
 
 interface EventSourceAdapter {
@@ -211,44 +215,17 @@ export function parseGdeltArticles(payload: unknown, now = Date.now()): Incoming
   return out;
 }
 
+const discoverGdelt = createGdeltDiscovery(GDELT_QUERIES);
 async function fetchGdeltEvents(): Promise<AdapterOutput> {
-  const results = await Promise.allSettled(GDELT_QUERIES.map(async query => {
-    const params = new URLSearchParams({
-      query,
-      mode: 'ArtList',
-      maxrecords: '50',
-      format: 'json',
-      sort: 'datedesc',
-      timespan: '3h',
-    });
-    const response = await fetch(`https://api.gdeltproject.org/api/v2/doc/doc?${params}`, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { Accept: 'application/json', 'User-Agent': 'OSIRIS/1.0' },
-      cache: 'no-store',
-    });
-    if (!response.ok) throw new Error(`GDELT HTTP ${response.status}`);
-    return parseGdeltArticles(await response.json());
-  }));
-
+  const result = await discoverGdelt();
   const events = new Map<string, IncomingEvent>();
-  let failed = 0;
-  for (const result of results) {
-    if (result.status === 'rejected') {
-      failed += 1;
-      continue;
-    }
-    for (const event of result.value) {
-      const url = event.evidence[0]?.url || event.id;
-      if (!events.has(url)) events.set(url, event);
-    }
+  for (const event of parseGdeltArticles({ articles: result.articles as GdeltArticle[] })) {
+    const url = event.evidence[0]?.url || event.id;
+    if (!events.has(url)) events.set(url, event);
   }
-  if (failed === results.length) throw new Error('all GDELT discovery queries failed');
-  return {
-    events: [...events.values()],
-    source_count: 1,
-    healthy_sources: 1,
-    degraded: failed ? `${failed}/${results.length} discovery queries failed` : undefined,
-  };
+  return { events: [...events.values()], source_count: 1, healthy_sources: 1,
+    degraded: result.failure ? `${result.completed}/${GDELT_QUERIES.length} discovery queries completed` : undefined,
+    failure: result.failure };
 }
 
 function xmlTag(block: string, name: string): string {
@@ -435,6 +412,7 @@ export async function collectEventSources(adapters = DEFAULT_EVENT_SOURCE_ADAPTE
           source_count: sourceCount,
           healthy_sources: healthySources,
           error: output.degraded,
+          failure: output.failure,
         },
       };
     } catch (error) {
@@ -453,6 +431,7 @@ export async function collectEventSources(adapters = DEFAULT_EVENT_SOURCE_ADAPTE
           source_count: 1,
           healthy_sources: 0,
           error: message,
+          failure: sourceFailure(error),
         },
       };
     }

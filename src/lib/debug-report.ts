@@ -1,3 +1,4 @@
+import { publicSourceFailure } from './source-failure';
 import { getDebugEventsSnapshot, type DebugRequestEvent } from './debug-events';
 import { getEventIngestHealthSnapshot, type ClientEventIngestSnapshot } from './event-health-client';
 import { eventFreshness, EVENT_STALE_AFTER_MS } from './event-freshness';
@@ -17,7 +18,7 @@ export function buildDebugReport(events: DebugRequestEvent[], ingest: ClientEven
     categories: { ...ingest.categories },
     sources: ingest.source_health.map(source => ({ id: source.id, label: source.label, state: source.state,
       ok: source.ok, durationMs: source.duration_ms, events: source.events,
-      sourceCount: source.source_count, healthySources: source.healthy_sources })),
+      sourceCount: source.source_count, healthySources: source.healthy_sources, failure: publicSourceFailure(source.failure) })),
   } : null;
   return { reportVersion: 2, exportedAt: new Date(now).toISOString(), userAgent, events, eventIngest };
 }
