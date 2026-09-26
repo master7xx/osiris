@@ -29,3 +29,11 @@ describe('debug report event health', () => {
     expect(health.categories.weather).toBe(4);
   });
 });
+
+
+it('exports source failure classification and next retry without raw provider errors', () => {
+  const report = buildDebugReport([], { ...health, source_health: [{ ...health.source_health[0],
+    error: 'private-provider-response', failure: { kind: 'http', http_status: 429, retry_at: '2026-09-26T12:10:00Z' } }] }, 'test', now);
+  expect(report.eventIngest?.sources[0].failure).toEqual({ kind: 'http', httpStatus: 429, retryAt: '2026-09-26T12:10:00.000Z' });
+  expect(JSON.stringify(report)).not.toContain('private-provider-response');
+});

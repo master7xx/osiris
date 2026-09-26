@@ -45,7 +45,11 @@ try {
         if (!sync.ok || !sync.headers.get('content-type')?.includes('application/json')) throw new Error(`Sync returned ${sync.status} or non-JSON`);
         const state = await sync.json();
         if (state.version !== 1 || !['snapshot', 'durable'].includes(state.mode)) throw new Error('Unexpected sync payload');
-        console.log(`[OK] Windows ${dev ? 'development' : 'production'} routing: health and sync return JSON`);
+        const diagnostics = await fetch(`http://127.0.0.1:${port}/api/cctv/diagnostics?id=runtime-smoke-unknown`, { signal: AbortSignal.timeout(10000), cache: 'no-store' });
+        if (!diagnostics.ok || !diagnostics.headers.get('content-type')?.includes('application/json')) throw new Error(`Camera diagnostics returned ${diagnostics.status} or non-JSON`);
+        const camera = await diagnostics.json();
+        if (camera.checks?.length !== 1 || camera.checks[0].id !== 'runtime-smoke-unknown' || camera.checks[0].state !== 'UNKNOWN') throw new Error('Unexpected camera diagnostic payload');
+        console.log(`[OK] Windows ${dev ? 'development' : 'production'} routing: health, sync and camera diagnostics return JSON`);
         process.exitCode = 0;
         break;
       }
