@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 const cacheKey = 'osiris.world-events.cache.v1';
 test('rejects damaged cache, retains a coherent checkpoint on outage and recovers after cursor reset', async ({ page }) => {
@@ -42,6 +43,17 @@ test('rejects damaged cache, retains a coherent checkpoint on outage and recover
   await expect(page.getByTestId('cache-state')).toHaveText('cached');
   await expect(page.getByRole('listitem')).toHaveText('Initial event');
   expect(await checkpoint()).toEqual(before);
+  await page.keyboard.press('Control+Shift+d');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'EXPORT', exact: true }).click();
+  const file = await downloaded;
+  const report = JSON.parse(await readFile((await file.path())!, 'utf8'));
+  expect(report.reportVersion).toBe(2);
+  expect(report.eventIngest).toMatchObject({ mode: 'durable', cached: true, refreshError: 'HTTP 503',
+    feedGeneratedAt: time, counts: { total: 1 }, freshness: { stale: true } });
+  expect(report.eventIngest.checkpointSavedAt).toBe(new Date(before.savedAt).toISOString());
+  expect(report.eventIngest.events).toBeUndefined();
+  await page.keyboard.press('Control+Shift+d');
   phase = 'recovery';
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect(page.getByRole('listitem')).toHaveText('Recovered event');

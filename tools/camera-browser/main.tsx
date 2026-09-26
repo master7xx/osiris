@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import DebugOverlay from '../../src/components/DebugOverlay';
 import CameraViewer from '../../src/components/CameraViewer';
 import DashboardShell from '../../src/components/DashboardShell';
 import { WorldEventsProvider, useWorldEvents } from '../../src/components/WorldEventsProvider';
@@ -9,7 +10,7 @@ const cameras = Array.from({ length: 6 }, (_, n) => ({ id: String(n), name: `Cam
   stream_type: 'mp4', stream_url: `https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/${n}.mp4`, feed_url: `/media/${n}.jpg` }));
 function EventRecoveryHarness() {
   const events = useWorldEvents();
-  return <main>
+  return <main><DebugOverlay />
     <button onClick={() => void events.refresh()}>Refresh events</button>
     <p data-testid="sync-state">{events.loading ? 'loading' : events.error ? 'error' : 'ready'}</p>
     <p data-testid="cache-state">{events.fromCache ? 'cached' : 'fresh'}</p>

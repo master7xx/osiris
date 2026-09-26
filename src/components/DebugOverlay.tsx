@@ -9,6 +9,7 @@ import {
   type DebugRequestEvent,
 } from '@/lib/debug-events';
 import { installDebugFetch } from '@/lib/debug-fetch';
+import { captureDebugReport } from '@/lib/debug-report';
 import RegionDossierStatus from '@/components/RegionDossierStatus';
 
 type DebugMode = 'all' | 'errors' | 'slow' | 'news';
@@ -100,7 +101,7 @@ export default function DebugOverlay() {
   }
 
   function exportLog() {
-    const payload = { exportedAt: new Date().toISOString(), userAgent: navigator.userAgent, events: getDebugEventsSnapshot() };
+    const payload = captureDebugReport(navigator.userAgent);
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const href = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
