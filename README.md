@@ -1094,3 +1094,15 @@ that camera the main view. The nearby list is recalculated within 2 km of the
 new selection (up to three neighbors). This preserves expanded mode and does
 not move the map; the Locate button remains available for recentering. Native
 video controls continue to control their own player.
+
+
+### Browser event checkpoint recovery
+
+The browser rejects cached events with missing or invalid replay sequence numbers,
+observation timestamps, lifecycle metadata or duplicate identities and requests a
+fresh checkpoint. A failed delta page or cancellation while reading a response
+keeps the previous events and cursor together; partial updates are not saved.
+After connectivity returns, synchronization resumes from that checkpoint (or
+bootstraps when the server requests a cursor reset). Browser regression coverage
+uses simulated outages and corrupted local storage; it does not verify live
+source availability.

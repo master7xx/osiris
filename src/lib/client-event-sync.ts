@@ -29,6 +29,13 @@ function checkEvent(event: FusedEvent) {
       && (item.upstream_id === undefined || typeof item.upstream_id === 'string' && item.upstream_id.length > 0))
     || !Number.isFinite(event.priority_score) || !Number.isFinite(event.severity) || !Number.isFinite(Date.parse(event.occurred_at))) throw new Error('Invalid event data');
 }
+function checkContinuousEvent(event: ContinuousEvent) {
+  checkEvent(event);
+  if (![event.first_observed_at, event.last_observed_at, event.changed_at].every(value => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+    || ![event.change_sequence, event.update_count].every(value => Number.isSafeInteger(value) && value >= 0)
+    || typeof event.fused_id !== 'string' || !event.fused_id
+    || !['new', 'updated', 'ongoing'].includes(event.lifecycle)) throw new Error('Invalid event checkpoint metadata');
+}
 function checkHealth(value: unknown): asserts value is EventSourceHealth[] {
   if (!Array.isArray(value) || value.some(source => !source || typeof source.id !== 'string'
     || !['healthy', 'partial', 'error'].includes(source.state) || !Number.isFinite(source.source_count)
@@ -42,9 +49,11 @@ function numeric(value: string) {
 function record(row: StoredEvent): ContinuousEvent {
   checkEvent(row.payload);
   if (typeof row.id !== 'string') throw new Error('Invalid event identity');
-  return { ...row.payload, id: row.id, fused_id: row.id, lifecycle: 'ongoing',
+  const event: ContinuousEvent = { ...row.payload, id: row.id, fused_id: row.id, lifecycle: 'ongoing',
     first_observed_at: row.first_observed_at, last_observed_at: row.last_observed_at, changed_at: row.changed_at,
     update_count: Math.max(0, numeric(row.revision) - 1), change_sequence: numeric(row.cursor) };
+  checkContinuousEvent(event);
+  return event;
 }
 function project(events: ContinuousEvent[], collector: Collector | null, fallback?: UnifiedEventFeed): UnifiedEventFeed {
   events = events.filter(event => !event.replaced_by?.length);
@@ -78,7 +87,9 @@ export function validateClientCache(value: unknown): EventClientCache | null {
     if (cache.feed.refresh_attempted_at !== undefined && !Number.isFinite(Date.parse(cache.feed.refresh_attempted_at))) return null;
     checkHealth(cache.feed.source_health);
     if (cache.retainedIds !== undefined && (!Array.isArray(cache.retainedIds) || !cache.retainedIds.every(id => typeof id === 'string'))) return null;
-    cache.feed.events.forEach(checkEvent); return cache;
+    cache.feed.events.forEach(checkContinuousEvent);
+    if (new Set(cache.feed.events.map(event => event.id)).size !== cache.feed.events.length) return null;
+    return cache;
   } catch { return null; }
 }
 
@@ -104,17 +115,27 @@ export function mergeSnapshotCache(previous: EventClientCache | null, next: Even
 
 /** Returns a new data+cursor checkpoint only after the whole bounded synchronization succeeds. */
 export async function synchronizeEvents(previous: EventClientCache | null, fetcher: Fetcher, signal: AbortSignal): Promise<EventClientCache> {
-  const get = (url: string) => fetcher(url, { cache: 'no-store', signal });
-  const config = await json(await get('/api/events/sync'));
+  const get = async (url: string) => {
+    signal.throwIfAborted();
+    const response = await fetcher(url, { cache: 'no-store', signal });
+    signal.throwIfAborted();
+    return response;
+  };
+  const read = async (response: Response) => {
+    const data = await json(response);
+    signal.throwIfAborted();
+    return data;
+  };
+  const config = await read(await get('/api/events/sync'));
   if (config.version !== 1 || !['snapshot', 'durable'].includes(config.mode)) throw new Error('Unsupported event sync mode');
   if (config.mode === 'snapshot') {
-    const feed: UnifiedEventFeed = await json(await get('/api/events/snapshot'));
+    const feed: UnifiedEventFeed = await read(await get('/api/events/snapshot'));
     const cache = validateClientCache({ version: 1, mode: 'snapshot', feed, savedAt: Date.now() });
     if (!cache) throw new Error('Invalid event snapshot');
     return mergeSnapshotCache(previous, cache);
   }
   const bootstrap = async (): Promise<EventClientCache> => {
-    const data = await json(await get('/api/events/stored'));
+    const data = await read(await get('/api/events/stored'));
     if (!Array.isArray(data.events) || typeof data.cursor !== 'string' || !data.cursor) throw new Error('Invalid bootstrap');
     return { version: 1, mode: 'durable', feed: project(data.events.map(record), data.collector), cursor: data.cursor, savedAt: Date.now() };
   };
@@ -125,7 +146,7 @@ export async function synchronizeEvents(previous: EventClientCache | null, fetch
   for (let page = 0; page < 20; page++) {
     const response = await get(`/api/events/changes?cursor=${encodeURIComponent(cursor)}&limit=300`);
     if (response.status === 410) return bootstrap();
-    const data = await json(response);
+    const data = await read(response);
     if (!Array.isArray(data.changes) || typeof data.cursor !== 'string' || !data.cursor || typeof data.has_more !== 'boolean') throw new Error('Invalid event changes');
     for (const change of data.changes as Change[]) {
       const existing = events.get(change.event_id);

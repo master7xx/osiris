@@ -143,3 +143,44 @@ describe('durable collector outage and recovery', () => {
     }
   });
 });
+
+
+describe('checkpoint recovery guards', () => {
+  it('rejects corrupt replay metadata rather than freezing later updates', async () => {
+    const valid = await initial();
+    for (const patch of [
+      { change_sequence: undefined }, { change_sequence: -1 }, { change_sequence: 1.5 },
+      { last_observed_at: 'invalid' }, { first_observed_at: undefined }, { changed_at: 'invalid' },
+      { update_count: -1 }, { fused_id: undefined }, { lifecycle: 'unknown' },
+    ]) {
+      expect(validateClientCache({ ...valid, feed: { ...valid.feed, events: [{ ...valid.feed.events[0], ...patch }] } })).toBeNull();
+    }
+    expect(validateClientCache(valid)).toEqual(valid);
+    expect(validateClientCache({ ...valid, feed: { ...valid.feed, events: [valid.feed.events[0], valid.feed.events[0]] } })).toBeNull();
+  });
+  it('keeps the checkpoint intact if a later revision has an invalid timestamp', async () => {
+    const previous = await initial();
+    const before = structuredClone(previous);
+    await expect(synchronizeEvents(previous, queue({ mode: 'durable', version: 1 },
+      { changes: [change('B', '2')], collector, cursor: 'p2', has_more: true },
+      { changes: [{ ...change('C', '3'), committed_at: 'broken' }], collector, cursor: 'end', has_more: false }).fetcher, signal())).rejects.toThrow('checkpoint metadata');
+    expect(previous).toEqual(before);
+  });
+  it('rejects a completed response body after cancellation and keeps the checkpoint', async () => {
+    const previous = await initial();
+    const controller = new AbortController();
+    const mock = queue({ mode: 'durable', version: 1 });
+    const fetcher = async (url: string) => {
+      if (url === '/api/events/sync') return mock.fetcher(url);
+      const response = new Response();
+      response.json = async () => {
+        controller.abort();
+        return { changes: [change('Late update', '2')], collector, cursor: 'end', has_more: false };
+      };
+      return response;
+    };
+    await expect(synchronizeEvents(previous, fetcher, controller.signal)).rejects.toThrow();
+    expect(previous.cursor).toBe('start');
+    expect(previous.feed.events[0].title).toBe('Report A');
+  });
+});
