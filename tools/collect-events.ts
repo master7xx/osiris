@@ -1,3 +1,4 @@
+import { persistCollectorSignals } from '../src/lib/collector-signal-store';
 import { lookupCollectorIdentities } from '../src/lib/collector-identity-lookup';
 import { recordCollectorOutcome } from '../src/lib/collector-outcome';
 import type { EventSourceHealth } from '../src/lib/event-sources';
@@ -30,24 +31,7 @@ try {
         if (stop.signal.aborted) break;
         if (core.healthy_sources + extra.healthy_sources === 0) throw new Error('All event sources unavailable');
         // Persist successful observations; absent sources cannot erase prior signals.
-        const client = await pool.connect();
-        try {
-          await client.query('BEGIN');
-          await client.query('SELECT cursor FROM osiris_events.metadata WHERE singleton FOR UPDATE');
-          const ownership = (await client.query('SELECT 1 FROM osiris_events.collector WHERE owner=$1 AND generation=$2 AND expires_at>clock_timestamp()', [owner, lease.generation])).rows;
-          if (!ownership.length) throw new Error('Collector lease expired');
-          let storedSignals = 0;
-          for (const signal of [...core.events, ...extra.events]) {
-            if (storedSignals++ % 100 === 0) {
-              const renewed = await client.query("UPDATE osiris_events.collector SET expires_at=clock_timestamp()+interval '120 seconds' WHERE owner=$1 AND generation=$2 AND expires_at>clock_timestamp()", [owner, lease.generation]);
-              if (!renewed.rowCount) throw new Error('Collector lease expired');
-            }
-            await client.query(`INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)
-            ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload,observed_at=clock_timestamp()`, [JSON.stringify([signal.evidence.map(item => item.source_id).sort(), signal.id]), JSON.stringify(signal)]);
-          }
-          await client.query("DELETE FROM osiris_events.signals WHERE observed_at < clock_timestamp()-interval '48 hours'");
-          await client.query('COMMIT');
-        } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+        await persistCollectorSignals(pool, lease, [...core.events, ...extra.events]);
         const signalRows = (await pool.query("SELECT payload,observed_at FROM osiris_events.signals WHERE observed_at>=clock_timestamp()-interval '48 hours'")).rows;
         const observedAt = observationIndex(signalRows);
         const signals = signalRows.map(row => row.payload as IncomingEvent);

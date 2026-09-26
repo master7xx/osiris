@@ -307,8 +307,9 @@ are `npx tsc --noEmit` and `npm run lint`.
 ## Next work and documentation maintenance
 
 The next steps are target-host recovery verification, history retention and
-tombstones, independently scheduled sources, replay-based UI updates, remaining
-report adapters (cyber advisories and other providers), and further consumer convergence.
+tombstones, independently scheduled sources, additional report adapters, and
+further consumer convergence. Durable replay-based UI updates and CISA cyber
+advisories are implemented.
 The PostgreSQL writer, readers and collector are implemented as an optional mode;
 production rollout and the remaining work are not claimed complete. The
 [architecture audit](docs/unified-event-audit.md) records the original baseline,
@@ -1184,3 +1185,18 @@ Client-cancelled requests remain visible as amber `ABORT` rows in debug history
 and exports, but do not increment the error counter. Server-side upstream aborts
 remain failures because they can represent deadlines. Camera page resolution is
 deferred briefly and cancelled on unmount to avoid StrictMode probe requests.
+
+### Batched collector observations
+
+The collector writes incoming signals in SQL batches of at most 100 input rows
+inside one transaction. Exact signal identities and last-write-wins behavior for
+duplicate observations are preserved within and across batches. Absent sources
+retain their previous observation timestamps; replaying cached data does not
+refresh them. A failed batch rolls back all signal writes in that cycle.
+
+The transaction retains the metadata lock and validates/renews database-time
+collector ownership before writes and before commit. Lock acquisition is bounded
+by a ten-second lock timeout. This reduces database round trips without changing
+fusion, durable event history, or the existing 48-hour transient signal policy.
+A maintained test checks that 3,000 inputs require 30 upsert statements; this is a
+query-count guarantee, not a measured end-to-end speedup. No migration is needed.
