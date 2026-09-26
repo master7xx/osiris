@@ -22,3 +22,23 @@ describe('client camera selection', () => {
     expect(mediaErrorLabel(4)).toBe('UNSUPPORTED');
   });
 });
+
+import { cameraVariantKey, preferredCamera } from './camera-playback';
+describe('reviewed camera variants', () => {
+  const still = { id: 'windy', name: 'Predeal', lat: 45.47811, lng: 25.564, feed_url: 'https://imgproxy.windy.com/_/full/plain/current/1357151208/original.jpg' };
+  const live = { id: 'digi', name: 'Predeal - Digi Live', lat: 45.47811, lng: 25.564, stream_type: 'hls', stream_url: 'https://digilive.rcs-rds.ro/digilivedge/predeal_desktop.stream/index.m3u8' };
+  it('promotes the reviewed video, retains snapshot fallback and removes its duplicate tile', () => {
+    const main = preferredCamera(still, [still, live]);
+    expect(main).toEqual({ ...live, feed_url: still.feed_url });
+    expect(nearbyCameras(main, [still, live])).toEqual([]);
+    expect(preferredCamera(live, [still, live])).toEqual(main);
+    expect(snapshotUrl(still)).toBe(still.feed_url);
+  });
+  it('keeps a still without its loaded variant and never substitutes a nearby namesake', () => {
+    const other = { ...live, id: 'centru', stream_url: 'https://digilive.rcs-rds.ro/digilivedge/predeal_centru_desktop.stream/index.m3u8' };
+    expect(preferredCamera(still, [other])).toBe(still);
+    expect(nearbyCameras(preferredCamera(still, [live, other]), [live, other])).toEqual([other]);
+    expect(cameraVariantKey({ ...still, feed_url: still.feed_url.replace('imgproxy.windy.com', 'imgproxy.windy.com.example.org') })).toBeUndefined();
+    expect(cameraVariantKey(other)).toBeUndefined();
+  });
+});

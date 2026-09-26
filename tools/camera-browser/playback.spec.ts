@@ -118,3 +118,19 @@ test('neighbor selection promotes the camera and preserves expanded mode', async
   await expect(area.locator('video')).toHaveCount(4);
   await page.screenshot({ path: 'test-results/camera-neighbor-selection.png' });
 });
+
+test('reviewed Windy variant opens HLS as main and falls back to its snapshot on failure', async ({ page }) => {
+  await page.route('https://imgproxy.windy.com/**', route => route.fulfill({ contentType: 'image/png', body: image }));
+  await page.route('https://digilive.rcs-rds.ro/**', route => route.fulfill({ status: 404, body: 'unavailable' }));
+  await page.route('**/api/cctv/diagnostics?*', route => route.fulfill({ json: { checks: [{ state: 'UNKNOWN' }] } }));
+  await page.goto('/tools/camera-browser/?variants');
+  await expect(page.locator('h2')).toHaveText('Predeal - Digi Live');
+  await expect(page.locator('video')).toHaveCount(1);
+  await expect(page.getByText(/NEARBY/)).toHaveCount(0);
+  await expect(page.getByAltText('Source snapshot fallback')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('SNAPSHOT FALLBACK · FRESHNESS UNVERIFIED')).toBeVisible();
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  await expect(page.getByRole('region', { name: 'Camera viewing area' })).toHaveAttribute('data-expanded', 'true');
+  await page.getByRole('button', { name: 'Close cameras' }).click();
+  await expect(page.locator('video')).toHaveCount(0);
+});

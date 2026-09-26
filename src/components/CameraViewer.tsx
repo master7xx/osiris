@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { X, ExternalLink, MapPin, Maximize2 } from 'lucide-react';
 import CameraMedia from './CameraMedia';
-import { nearbyCameras, type PlaybackCamera } from '@/lib/camera-playback';
+import { nearbyCameras, preferredCamera, type PlaybackCamera } from '@/lib/camera-playback';
 interface CameraViewerProps {
   camera: (PlaybackCamera & { city?: string; country?: string }) | null;
   cameras?: PlaybackCamera[];
@@ -10,9 +10,10 @@ interface CameraViewerProps {
   onSelect: (camera: PlaybackCamera) => void;
   onLocate?: (lat: number, lng: number) => void;
 }
-export default function CameraViewer({ camera, cameras = [], onClose, onSelect, onLocate }: CameraViewerProps) {
+export default function CameraViewer({ camera: selected, cameras = [], onClose, onSelect, onLocate }: CameraViewerProps) {
   const [fullscreen, setFullscreen] = useState(false);
-  if (!camera) return null;
+  if (!selected) return null;
+  const camera = preferredCamera(selected, cameras) as typeof selected;
   const neighbors = nearbyCameras(camera, cameras);
   const source = camera.external_url || camera.stream_url || camera.feed_url;
   return <section aria-label="Camera viewing area" data-expanded={fullscreen} className={`camera-viewer fixed z-[10000] flex flex-col overflow-auto border border-[var(--border-primary)] bg-black/95 text-white shadow-2xl ${fullscreen ? 'inset-4' : 'bottom-[70px] left-2 right-2 max-h-[80vh] md:bottom-6 md:left-auto md:right-6 md:w-[560px]'}`}>

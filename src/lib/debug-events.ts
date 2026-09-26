@@ -83,3 +83,11 @@ export function subscribeDebugEvents(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/** Client AbortError is a cancelled operation, not a failed server response.
+ * Preserve upstream aborts as failures: they may represent server deadlines.
+ */
+export function isDebugFailure(event: DebugRequestEvent): boolean {
+  return event.status === 'error' ||
+    (event.upstreams || []).some(upstream => upstream.state === 'error' || upstream.state === 'aborted');
+}

@@ -1161,3 +1161,26 @@ Windows dev and production smoke tests also request camera diagnostics with an
 unknown ID and require a JSON UNKNOWN response, alongside health and event sync.
 These deterministic tests do not establish live GDELT availability or diagnose
 older failures whose detailed causes were not recorded.
+
+### Reviewed camera playback variants
+
+The camera viewer prefers a loaded video variant of a selected snapshot only
+when an explicit reviewed alias links them. The initial alias links Windy image
+`1357151208` to DIGI camera `3307` (Predeal), whose HLS path is published in
+[DIGI's camera catalogue](https://www.digi.ro/servicii/online/web-cams).
+The matching road and roof view was reviewed from the reported September 26
+screenshot. Predeal Centru is a separate camera. City names and nearby coordinates
+are never sufficient to merge cameras.
+
+When both variants are loaded, the main player uses the video record, including
+its source and diagnostic ID, and retains the snapshot as a fallback. The same
+camera is excluded from nearby tiles. Without the loaded video record, the
+snapshot stays selected; no stream URL is guessed or fetched by this mapping.
+Overview behavior is unchanged. Playback errors and startup timeouts expose the
+snapshot fallback with unverified freshness and an explicit media status. Media
+continues to load directly in the browser, without server video storage.
+
+Client-cancelled requests remain visible as amber `ABORT` rows in debug history
+and exports, but do not increment the error counter. Server-side upstream aborts
+remain failures because they can represent deadlines. Camera page resolution is
+deferred briefly and cancelled on unmount to avoid StrictMode probe requests.
