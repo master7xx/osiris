@@ -2,11 +2,21 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import CameraViewer from '../../src/components/CameraViewer';
 import DashboardShell from '../../src/components/DashboardShell';
-import { WorldEventsProvider } from '../../src/components/WorldEventsProvider';
+import { WorldEventsProvider, useWorldEvents } from '../../src/components/WorldEventsProvider';
 import CameraMedia from '../../src/components/CameraMedia';
 import '../../src/app/globals.css';
 const cameras = Array.from({ length: 6 }, (_, n) => ({ id: String(n), name: `Camera ${n}`, source: 'TfL', lat: 51.5 + n / 1000, lng: -0.1,
   stream_type: 'mp4', stream_url: `https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/${n}.mp4`, feed_url: `/media/${n}.jpg` }));
+function EventRecoveryHarness() {
+  const events = useWorldEvents();
+  return <main>
+    <button onClick={() => void events.refresh()}>Refresh events</button>
+    <p data-testid="sync-state">{events.loading ? 'loading' : events.error ? 'error' : 'ready'}</p>
+    <p data-testid="cache-state">{events.fromCache ? 'cached' : 'fresh'}</p>
+    <p data-testid="sync-error">{events.error}</p>
+    <ul>{events.snapshot?.events.map(event => <li key={event.id}>{event.title}</li>)}</ul>
+  </main>;
+}
 function Harness() {
   const [selected, setSelected] = useState<number | null>(null);
   const shell = new URLSearchParams(location.search).has('shell');
@@ -16,4 +26,4 @@ function Harness() {
   </>;
   return shell ? <WorldEventsProvider onMapSelect={() => {}}><DashboardShell mobile={false} navigationVisible onShowNavigation={() => {}} navigation={() => <div>Layers</div>} news={<div>World events fixture</div>} status={null} search={null}>{content}</DashboardShell></WorldEventsProvider> : content;
 }
-createRoot(document.getElementById('root')!).render(<Harness />);
+createRoot(document.getElementById('root')!).render(new URLSearchParams(location.search).has('events') ? <WorldEventsProvider onMapSelect={() => {}}><EventRecoveryHarness /></WorldEventsProvider> : <Harness />);
