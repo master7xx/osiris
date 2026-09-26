@@ -7,7 +7,9 @@ import { __test, locateArticle } from './news-aggregator';
 
 const now = Date.now();
 const make = (id: string, url = 'https://t.me/istories_media/123', observed = now): ContinuousEvent => ({
-  id, title: 'German investigators report Leipzig incident', description: 'Same source post', category: 'conflict',
+  id, fused_id: id, lifecycle: 'ongoing', change_sequence: 1, update_count: 0,
+  first_observed_at: new Date(observed).toISOString(), changed_at: new Date(observed).toISOString(),
+  title: 'German investigators report Leipzig incident', description: 'Same source post', category: 'conflict',
   occurred_at: new Date(now - 60000).toISOString(), last_observed_at: new Date(observed).toISOString(),
   priority_score: 49, severity: 49, confidence: 'unconfirmed', sources: ['Important Stories'],
   evidence: [{ source_id: 'news:important-stories', source: 'Important Stories', url }],
