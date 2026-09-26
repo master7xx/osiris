@@ -1,4 +1,6 @@
-import { isNewsDigest } from './event-text';
+// Frozen pre-optimization oracle (PR 76). Test/benchmark only; never imported by runtime.
+import { explicitReportMatch } from '../../src/lib/upstream-report';
+import { isNewsDigest } from '../../src/lib/event-text';
 export type EventCategory =
   | 'conflict'
   | 'protest'
@@ -126,10 +128,8 @@ function tokens(value: string): Set<string> {
 }
 
 export function eventTitleSimilarity(a: string, b: string): number {
-  return tokenSimilarity(tokens(a), tokens(b));
-}
-
-function tokenSimilarity(aa: Set<string>, bb: Set<string>): number {
+  const aa = tokens(a);
+  const bb = tokens(b);
   if (!aa.size || !bb.size) return 0;
   let common = 0;
   for (const word of aa) if (bb.has(word)) common += 1;
@@ -158,24 +158,8 @@ function categoryFamily(category: EventCategory): string {
   return category;
 }
 
-interface PreparedEvent {
-  event: IncomingEvent;
-  digest: boolean;
-  time: number;
-  words: Set<string>;
-  urls: Set<string>;
-  reports: Set<string>;
-  nws: boolean;
-}
-
-function prepareEvent(event: IncomingEvent): PreparedEvent {
-  return {
-    event, digest: isNewsDigest(event.title, event.description), time: toMs(event.occurred_at),
-    words: tokens(event.title),
-    urls: new Set(event.evidence.flatMap(item => item.url ? [item.url] : [])),
-    reports: new Set(event.evidence.flatMap(item => item.upstream_id ? [JSON.stringify([item.source_id, item.upstream_id])] : [])),
-    nws: event.evidence.some(item => item.source_id === 'noaa-nws'),
-  };
+function evidenceUrls(event: IncomingEvent) {
+  return new Set(event.evidence.map(item => item.url).filter((url): url is string => Boolean(url)));
 }
 
 /** Adapter IDs remain stable across observations; do not change durable identity keys. */
@@ -190,24 +174,23 @@ function distinctHazardIdentities(a: IncomingEvent, b: IncomingEvent): boolean {
 }
 
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
-  return shouldFusePrepared(prepareEvent(a), prepareEvent(b));
-}
-
-function shouldFusePrepared(left: PreparedEvent, right: PreparedEvent): boolean {
-  const a = left.event;
-  const b = right.event;
-  if (left.digest !== right.digest) return false;
+  if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (Boolean(a.withdrawn) !== Boolean(b.withdrawn)) return false;
   if (a.id === b.id) return true;
+
   if (distinctHazardIdentities(a, b)) return false;
-  if (left.reports.size || right.reports.size) {
-    return [...left.reports].some(report => right.reports.has(report));
-  }
-  if ([...left.urls].some(url => right.urls.has(url))) return true;
-  if (left.nws && right.nws) return false;
-  const timeDelta = Math.abs(left.time - right.time);
+
+  const explicit = explicitReportMatch(a.evidence, b.evidence);
+  if (explicit !== undefined) return explicit;
+  const urlsA = evidenceUrls(a);
+  if (b.evidence.some(item => item.url && urlsA.has(item.url))) return true;
+
+  if (a.evidence.some(e => e.source_id === 'noaa-nws') && b.evidence.some(e => e.source_id === 'noaa-nws')) return false;
+
+  const timeDelta = Math.abs(toMs(a.occurred_at) - toMs(b.occurred_at));
   if (!Number.isFinite(timeDelta) || timeDelta > 8 * 60 * 60_000) return false;
-  const similarity = tokenSimilarity(left.words, right.words);
+
+  const similarity = eventTitleSimilarity(a.title, b.title);
   const distance = haversineKm(a, b);
   const sameCategory = a.category === b.category;
   const sameFamily = categoryFamily(a.category) === categoryFamily(b.category);
@@ -332,93 +315,22 @@ function fuseCluster(items: IncomingEvent[], now: number): FusedEvent {
   };
 }
 
-export interface FusionProfile {
-  prepare_ms: number;
-  match_ms: number;
-  finalize_ms: number;
-  valid_signals: number;
-  clusters: number;
-  candidate_clusters: number;
-  comparisons: number;
-}
-
-const MATCH_WINDOW = 8 * 60 * 60_000;
-
-/** Conservative candidate index; the existing predicate and first-cluster order remain authoritative. */
-class FusionCandidates {
-  private ids = new Map<string, Set<number>>();
-  private reports = new Map<string, Set<number>>();
-  private urls = new Map<string, Set<number>>();
-  private nwsTimes = new Map<number, Set<number>>();
-  private otherTimes = new Map<number, Set<number>>();
-
-  private add<K>(index: Map<K, Set<number>>, key: K, cluster: number) {
-    let values = index.get(key);
-    if (!values) { values = new Set(); index.set(key, values); }
-    values.add(cluster);
-  }
-
-  record(row: PreparedEvent, cluster: number) {
-    this.add(this.ids, row.event.id, cluster);
-    for (const report of row.reports) this.add(this.reports, report, cluster);
-    // Explicit report identity blocks both URL and fuzzy matching, even on only one side.
-    if (row.reports.size) return;
-    for (const url of row.urls) this.add(this.urls, url, cluster);
-    this.add(row.nws ? this.nwsTimes : this.otherTimes, Math.floor(row.time / MATCH_WINDOW), cluster);
-  }
-
-  find(row: PreparedEvent): number[] {
-    const candidates = new Set<number>();
-    const include = (values?: Set<number>) => { if (values) for (const value of values) candidates.add(value); };
-    include(this.ids.get(row.event.id));
-    for (const report of row.reports) include(this.reports.get(report));
-    if (!row.reports.size) {
-      for (const url of row.urls) include(this.urls.get(url));
-      const bucket = Math.floor(row.time / MATCH_WINDOW);
-      for (let offset = -1; offset <= 1; offset++) {
-        include(this.otherTimes.get(bucket + offset));
-        if (!row.nws) include(this.nwsTimes.get(bucket + offset));
-      }
-    }
-    // Greedy clustering must select the earliest matching cluster, not index traversal order.
-    return [...candidates].sort((a, b) => a - b);
-  }
-}
-
-export function fuseEvents(events: IncomingEvent[], options: { now?: number; limit?: number; onProfile?: (profile: FusionProfile) => void } = {}): FusedEvent[] {
+export function fuseEvents(events: IncomingEvent[], options: { now?: number; limit?: number } = {}): FusedEvent[] {
   const now = options.now ?? Date.now();
-  const started = performance.now();
   const valid = events
     .filter(event => event.title.trim().length >= 4 && toMs(event.occurred_at) > 0)
-    .map(prepareEvent)
-    .sort((a, b) => b.time - a.time);
-  const prepared = performance.now();
-  const clusters: PreparedEvent[][] = [];
-  const index = new FusionCandidates();
-  let candidateClusters = 0;
-  let comparisons = 0;
-  for (const row of valid) {
-    const candidates = index.find(row);
-    candidateClusters += candidates.length;
-    let selected: number | undefined;
-    for (const position of candidates) {
-      const rows = clusters[position];
-      if (rows.some(existing => distinctHazardIdentities(existing.event, row.event))) continue;
-      if (rows.some(existing => { comparisons++; return shouldFusePrepared(existing, row); })) {
-        selected = position; break;
-      }
-    }
-    if (selected === undefined) { selected = clusters.length; clusters.push([row]); }
-    else clusters[selected].push(row);
-    index.record(row, selected);
+    .sort((a, b) => toMs(b.occurred_at) - toMs(a.occurred_at));
+
+  const clusters: IncomingEvent[][] = [];
+  for (const event of valid) {
+    const cluster = clusters.find(rows => !rows.some(existing => distinctHazardIdentities(existing, event))
+      && rows.some(existing => shouldFuseEvents(existing, event)));
+    if (cluster) cluster.push(event);
+    else clusters.push([event]);
   }
-  const matched = performance.now();
-  const result = clusters
-    .map(cluster => fuseCluster(cluster.map(row => row.event), now))
+
+  return clusters
+    .map(cluster => fuseCluster(cluster, now))
     .sort((a, b) => b.priority_score - a.priority_score || toMs(b.last_seen_at) - toMs(a.last_seen_at))
     .slice(0, options.limit ?? 300);
-  options.onProfile?.({ prepare_ms: Math.round(prepared - started), match_ms: Math.round(matched - prepared),
-    finalize_ms: Math.round(performance.now() - matched), valid_signals: valid.length, clusters: clusters.length,
-    candidate_clusters: candidateClusters, comparisons });
-  return result;
 }
