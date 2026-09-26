@@ -1200,3 +1200,29 @@ by a ten-second lock timeout. This reduces database round trips without changing
 fusion, durable event history, or the existing 48-hour transient signal policy.
 A maintained test checks that 3,000 inputs require 30 upsert statements; this is a
 query-count guarantee, not a measured end-to-end speedup. No migration is needed.
+
+### Collector cycle timing
+
+The collector emits `[collector]` JSON lines with a UTC `timestamp` and a unique
+`cycle_id`. `cycle_start` begins an attempt; `stage_start` identifies the current
+stage and reports completed stage durations; `cycle_end` reports the result,
+total duration, stage durations and counts. Durations use a monotonic clock so
+wall-clock corrections do not produce negative timing measurements.
+
+Stages distinguish lease acquisition, upstream sources, signal writes/reads,
+fusion, identity lookup, preparation, durable commits, health recording and lease
+release. A failure includes `failed_stage`; the last stage-start line also helps
+locate an interrupted attempt that never produced a summary. Results are
+`success`, `failed`, `skipped` (no lease), or `cancelled` (shutdown after sources).
+`processed_events` counts successfully committed batch inputs, not newly created
+events. A failed cycle can have committed earlier durable batches; the counter
+retains that progress. These lines replace the ambiguous `Committed N events`.
+
+`cycle_wait` records the actual scheduled delay and `next_attempt_at`, an earliest
+planned attempt rather than a promise of completion. Backoff and collection
+scheduling are unchanged. Compare `cycle_end` timestamps against debug export
+`feedGeneratedAt` and `checkpointSavedAt` to investigate collection versus client
+sync delay. Timing logs remain in the collector terminal/container logs; they are
+not persisted in PostgreSQL or included in the browser debug export. No schema
+migration is needed, and structured timing lines contain no event bodies, source
+URLs, credentials or raw error messages.
