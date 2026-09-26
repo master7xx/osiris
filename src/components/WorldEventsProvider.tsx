@@ -34,12 +34,12 @@ function useWorldEventsState(onMapSelect: () => void) {
       if (request.current !== controller) return;
       checkpoint.current = next;
       writeEventCache(next);
-      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth({ ...next.feed, cached: Boolean(next.feed.refresh_error) }); setError(''); setFromCache(Boolean(next.feed.refresh_error));
+      setRetainedIds(next.retainedIds ?? []); setSnapshot(next.feed); setEventIngestHealth({ ...next.feed, mode: next.mode, checkpoint_saved_at: new Date(next.savedAt).toISOString(), cached: Boolean(next.feed.refresh_error) }); setError(''); setFromCache(Boolean(next.feed.refresh_error));
     } catch (err) {
       if (request.current === controller) {
         const message = err instanceof Error ? err.message : 'Event refresh failed';
         setError(message); setFromCache(Boolean(checkpoint.current));
-        if (checkpoint.current) setEventIngestHealth({ ...checkpoint.current.feed, cached: true, refresh_error: message });
+        if (checkpoint.current) setEventIngestHealth({ ...checkpoint.current.feed, mode: checkpoint.current.mode, checkpoint_saved_at: new Date(checkpoint.current.savedAt).toISOString(), cached: true, refresh_error: message });
       }
     } finally {
       clearTimeout(timeout);
@@ -49,7 +49,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   useEffect(() => {
     const initial = setTimeout(() => {
       const cached = readEventCache();
-      if (cached) { checkpoint.current = cached; setRetainedIds(cached.retainedIds ?? []); setSnapshot(cached.feed); setEventIngestHealth({ ...cached.feed, cached: true }); setFromCache(true); setNow(Date.now()); }
+      if (cached) { checkpoint.current = cached; setRetainedIds(cached.retainedIds ?? []); setSnapshot(cached.feed); setEventIngestHealth({ ...cached.feed, mode: cached.mode, checkpoint_saved_at: new Date(cached.savedAt).toISOString(), cached: true }); setFromCache(true); setNow(Date.now()); }
       void refresh();
     }, 0);
     const poll = setInterval(() => { if (!document.hidden) void refresh(); }, 90000);

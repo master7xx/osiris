@@ -1121,3 +1121,16 @@ an interrupted transaction automatically.
 PostgreSQL CI terminates one test-owned idle connection, then checks reconnect,
 lease acquisition, event commit/readback and propagation of an active SQL error.
 No database migration is required.
+
+
+### Debug export: event freshness
+
+DEBUG → EXPORT retains the request log and adds `reportVersion: 2` with an
+`eventIngest` health summary: read mode, client checkpoint save time, feed generation
+time, cache/error state, freshness at export time, event counts and source health.
+In durable mode, feed generation time represents the collector's last successful
+collection; checkpoint time only indicates client synchronization. A successful
+HTTP request alone does not establish fresh source data. Missing health is `null`.
+The freshness threshold remains three minutes, shared with the feed UI. The new
+summary includes no event bodies, evidence lists or replay cursors and makes no
+additional network requests. Existing request-log fields remain unchanged.

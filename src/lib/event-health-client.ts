@@ -15,6 +15,8 @@ export interface ClientEventSourceHealth {
 }
 
 export interface ClientEventIngestSnapshot {
+  mode?: 'snapshot' | 'durable';
+  checkpoint_saved_at?: string;
   total: number;
   mappable: number;
   confirmed: number;
