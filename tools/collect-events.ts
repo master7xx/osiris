@@ -3,7 +3,7 @@ import { recordCollectorOutcome } from '../src/lib/collector-outcome';
 import type { EventSourceHealth } from '../src/lib/event-sources';
 import { batches, observationIndex, collectorIdentities } from '../src/lib/collector-observations';
 import { randomUUID } from 'node:crypto';
-import pg from 'pg';
+import { createEventDatabasePool } from '../src/lib/event-database-pool';
 import { setTimeout as delay } from 'node:timers/promises';
 import { collectEventSources } from '../src/lib/event-sources';
 import { collectSupplementalEventSignals } from '../src/lib/event-signals';
@@ -13,7 +13,7 @@ import { acquireCollectorLease, releaseCollectorLease } from '../src/lib/event-c
 
 async function main() {
 if (!process.env.EVENT_DATABASE_URL) throw new Error('EVENT_DATABASE_URL is required; run events:migrate first');
-const pool = new pg.Pool({ connectionString: process.env.EVENT_DATABASE_URL, max: 3, connectionTimeoutMillis: 10000, statement_timeout: 30000 });
+const pool = createEventDatabasePool({ connectionString: process.env.EVENT_DATABASE_URL, max: 3, connectionTimeoutMillis: 10000, statement_timeout: 30000 }, 'collector');
 const store = new DurableEventStore(pool);
 const owner = randomUUID();
 const stop = new AbortController();

@@ -1106,3 +1106,18 @@ After connectivity returns, synchronization resumes from that checkpoint (or
 bootstraps when the server requests a cursor reset). Browser regression coverage
 uses simulated outages and corrupted local storage; it does not verify live
 source availability.
+
+
+### Database connection recovery
+
+The web event API and collector handle PostgreSQL pool errors from idle
+connections without terminating their processes. The driver discards the broken
+connection and the next operation attempts to reconnect. Logs identify the web
+or collector process without dumping connection credentials. Errors in active
+queries still propagate through the existing API error responses and collector
+retry/backoff; failed writes are not reported as successful. This does not replay
+an interrupted transaction automatically.
+
+PostgreSQL CI terminates one test-owned idle connection, then checks reconnect,
+lease acquisition, event commit/readback and propagation of an active SQL error.
+No database migration is required.
