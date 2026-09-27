@@ -1,3 +1,4 @@
+import type { ConflictSample } from './collector-conflict-samples';
 import type { FusionProfile } from './event-fusion';
 import type { IdentityConflictReason } from './collector-identity-conflict';
 export type CollectorStage = 'lease' | 'sources' | 'signals_write' | 'signals_read' | 'fusion' | 'identities' | 'prepare' | 'commit' | 'outcome' | 'release';
@@ -29,10 +30,13 @@ export function collectorCycleLog(cycleId: string, emit = (line: string) => cons
         finalize_ms: profile.finalize_ms, valid_signals: profile.valid_signals, clusters: profile.clusters,
         candidate_clusters: profile.candidate_clusters, comparisons: profile.comparisons });
     },
-    conflicts(reasons: Record<IdentityConflictReason, number>) {
+    conflicts(reasons: Record<IdentityConflictReason, number>, samples: ConflictSample[] = []) {
       if (finished) return;
       write({ event: 'identity_conflicts', multiple_stored_events: reasons.multiple_stored_events,
-        repeated_stored_event: reasons.repeated_stored_event });
+        repeated_stored_event: reasons.repeated_stored_event,
+        samples: samples.slice(0, 10).map(sample => ({ reason: sample.reason, candidate_fingerprint: sample.candidate_fingerprint,
+          stored_events: sample.stored_events.slice(0, 10).map(row => ({ id: row.id, revision: row.revision })),
+          stored_event_count: sample.stored_event_count, sources: sample.sources.slice(0, 10), source_count: sample.source_count })) });
     },
     finish(result: CollectorCycleResult, counts: CollectorCycleCounts, failedStage?: CollectorStage) {
       if (finished) return;

@@ -1245,7 +1245,7 @@ The enclosing `fusion` stage also includes observation and identity preparation,
 so its duration can exceed the profile total. `identity_conflicts` separates
 `multiple_stored_events` (one candidate links to multiple stored events) from
 `repeated_stored_event` (a stored event was already accepted earlier this cycle).
-These are aggregate console diagnostics, not a browser debug export or automatic
+These are console diagnostics, not a browser debug export or automatic
 reconciliation. The skip policy and historical records are unchanged; a skipped
 ambiguous candidate does not reserve any stored ID.
 
@@ -1265,3 +1265,31 @@ collector duration. Unit tests also cover greedy cluster order, hazard vetoes,
 identity precedence, time boundaries, input mutation and aggregate profiling.
 The reference is test/benchmark-only. Refresh intervals, the stale threshold,
 retention, database schema and camera behavior are unaffected.
+
+
+### Batched refresh of unchanged stored events
+
+Within the existing metadata-locked transaction, the store resolves a batch's
+identities together. When every write resolves to a distinct existing event with
+unchanged content, it refreshes payload/ranking and observation times together,
+and writes identities/evidence in chunks of at most 300 rows. Revision numbers,
+revision history and the change cursor stay unchanged. Older observations cannot
+move `last_observed_at` backwards; `first_observed_at` is retained. Historical
+evidence is retained and the last duplicate evidence payload still wins.
+
+Creation, content changes, repeated target events and ambiguous identities use
+the existing sequential transaction path. Two candidates claiming a new shared
+alias also fall back, preserving conflict detection and full rollback. Batch
+receipts, replay, ownership checks and input snapshots apply to both paths. No
+migration or retention change is required. A PostgreSQL integration test checks
+that refreshing 300 unchanged events with 300 added aliases takes at most 15
+queries while preserving revisions, cursor, first/last observation times and
+idempotent replay; live duration remains workload dependent.
+
+`identity_conflicts.samples` now contains up to ten skipped candidates per cycle,
+with a stable candidate fingerprint, conflict reason, stored UUID/revision pairs
+and source IDs. Each sample includes total stored-event/source counts, with at
+most ten entries from each. Titles, evidence bodies, URLs and raw upstream keys
+are excluded. Repeated samples can identify persistent conflicts for a read-only
+review; they do not authorize or perform historical reconciliation. These samples
+appear in the `npm run dev` / collector terminal, alongside the existing counters.
