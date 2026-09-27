@@ -45,6 +45,87 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
   });
   afterAll(async () => { await pool?.end(); });
 
+  it('refreshes 300 unchanged events in bounded queries without new revisions or cursor movement', async () => {
+    const observedAt = new Date(Date.now() - 30000).toISOString();
+    const batch = Array.from({ length: 300 }, (_, n) => ({ ...write(), observedAt,
+      identities: [{ sourceId: 'bulk', upstreamId: String(n) }] }));
+    const initial = await store.commitBatch(randomUUID(), batch);
+    const client = await pool.connect();
+    const queries: string[] = [];
+    const counted = new DurableEventStore({ connect: async () => ({
+      query: async (sql: string, args?: unknown[]) => { queries.push(sql); return client.query(sql, args); },
+      release: () => client.release(),
+    }) } as unknown as pg.Pool);
+    const newer = new Date(Date.now() - 10000).toISOString();
+    const refreshed = batch.map(item => ({ ...item, observedAt: newer,
+      event: { ...item.event, priority_score: 20, age_minutes: 99 },
+      identities: [...item.identities, { sourceId: 'alias', upstreamId: item.identities[0].upstreamId }] }));
+    const batchId = randomUUID();
+    const result = await counted.commitBatch(batchId, refreshed);
+    expect(result).toEqual(initial);
+    expect(queries.length).toBeLessThanOrEqual(15);
+    expect(queries.some(sql => sql.startsWith('UPDATE osiris_events.events e SET'))).toBe(true);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('300');
+    expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('600');
+    const rows = (await pool.query('SELECT payload,first_observed_at,last_observed_at FROM osiris_events.events')).rows;
+    expect(rows.every(row => row.payload.priority_score === 20 && row.payload.age_minutes === 99
+      && row.first_observed_at.toISOString() === observedAt && row.last_observed_at.toISOString() === newer)).toBe(true);
+    expect(await store.commitBatch(batchId, refreshed)).toEqual(result);
+    await store.commitBatch(randomUUID(), batch);
+    expect((await pool.query('SELECT last_observed_at FROM osiris_events.events')).rows.every(row => row.last_observed_at.toISOString() === newer)).toBe(true);
+  });
+
+  it('keeps same-batch sequential revision and alias semantics on the fallback path', async () => {
+    const initial = await store.commitBatch(randomUUID(), [write()]);
+    const alias = { sourceId: 'alias', upstreamId: 'new-key' };
+    const result = await store.commitBatch(randomUUID(), [
+      { ...write({ priority_score: 20 }), identities: [...write().identities, alias] },
+      { ...write({ title: 'Updated through newly attached alias' }, '1'), identities: [alias] },
+      { ...write({ title: 'Updated through newly attached alias', priority_score: 30 }, '2'), identities: [alias] },
+    ]);
+    expect(result.events.map(row => row.id)).toEqual(Array(3).fill(initial.events[0].id));
+    expect(result.events.map(row => row.revision)).toEqual(['1', '2', '2']);
+    expect((await pool.query('SELECT payload FROM osiris_events.events')).rows[0].payload.priority_score).toBe(30);
+  });
+
+  it('rejects a newly shared alias across distinct unchanged events atomically', async () => {
+    const other = { ...write(), identities: [{ sourceId: 'other', upstreamId: 'other' }] };
+    await store.commitBatch(randomUUID(), [write(), other]);
+    const alias = { sourceId: 'alias', upstreamId: 'ambiguous' };
+    await expect(store.commitBatch(randomUUID(), [write(), other].map(item => ({ ...item,
+      identities: [...item.identities, alias], event: { ...item.event, priority_score: 5 } })))).rejects.toThrow('Identity conflict');
+    expect((await pool.query("SELECT count(*) FROM osiris_events.identities WHERE source_id='alias'")).rows[0].count).toBe('0');
+    expect((await pool.query('SELECT payload FROM osiris_events.events')).rows.every(row => row.payload.priority_score === 60)).toBe(true);
+  });
+
+  it('rolls back fast refresh and new aliases when a late evidence statement fails', async () => {
+    await store.commitBatch(randomUUID(), [write()]);
+    const before = (await pool.query('SELECT * FROM osiris_events.events')).rows;
+    const client = await pool.connect();
+    const failing = new DurableEventStore({ connect: async () => ({
+      query: async (sql: string, args?: unknown[]) => {
+        if (sql.startsWith('INSERT INTO osiris_events.evidence(event_id')) return client.query('SELECT 1/0');
+        return client.query(sql, args);
+      }, release: () => client.release(),
+    }) } as unknown as pg.Pool);
+    await expect(failing.commitBatch(randomUUID(), [{ ...write({ priority_score: 5 }),
+      identities: [...write().identities, { sourceId: 'alias', upstreamId: 'rollback' }] }])).rejects.toThrow();
+    expect((await pool.query('SELECT * FROM osiris_events.events')).rows).toEqual(before);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.identities')).rows[0].count).toBe('1');
+    expect((await pool.query('SELECT count(*) FROM osiris_events.batches')).rows[0].count).toBe('1');
+  });
+
+  it('keeps the last duplicate evidence payload during unchanged refresh', async () => {
+    const first = event().evidence[0];
+    const item = write({ evidence: [first, { ...first, weight: 2 }] });
+    await store.commitBatch(randomUUID(), [item]);
+    await store.commitBatch(randomUUID(), [item]);
+    const rows = (await pool.query('SELECT payload FROM osiris_events.evidence')).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].payload.weight).toBe(2);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('1');
+  });
+
   it('batches observations with last duplicate winning, retaining absent sources and their timestamps', async () => {
     const lease = (await acquireCollectorLease(pool, randomUUID()))!;
     await pool.query(`INSERT INTO osiris_events.signals(id,payload,observed_at) VALUES

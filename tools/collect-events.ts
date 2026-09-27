@@ -1,3 +1,4 @@
+import { conflictSample, type ConflictSample } from '../src/lib/collector-conflict-samples';
 import { identityConflictReason } from '../src/lib/collector-identity-conflict';
 import { collectorCycleLog, type CollectorStage, type CollectorCycleResult } from '../src/lib/collector-cycle-log';
 import { persistCollectorSignals } from '../src/lib/collector-signal-store';
@@ -60,6 +61,7 @@ try {
         const writes: EventWrite[] = [];
         const seen = new Set<string>();
         let conflicts = 0;
+        const conflictSamples: ConflictSample[] = [];
         const conflictReasons = { multiple_stored_events: 0, repeated_stored_event: 0 };
         let prepared = 0;
         for (const [position, event] of fused.entries()) {
@@ -70,12 +72,16 @@ try {
           const identities = identityGroups[position];
           const rows = storedMatches[position];
           const reason = identityConflictReason(rows.map(row => row.id), seen);
-          if (reason) { conflicts++; conflictReasons[reason]++; continue; }
+          if (reason) {
+            conflicts++; conflictReasons[reason]++;
+            if (conflictSamples.length < 10) conflictSamples.push(conflictSample(reason, event.id, rows, identities));
+            continue;
+          }
           if (rows[0]) seen.add(rows[0].id);
           writes.push({ identities, event, observedAt: observedAt(event), expectedRevision: rows[0]?.revision ?? null });
         }
         counts.skipped_conflicts = conflicts;
-        cycle.conflicts(conflictReasons);
+        cycle.conflicts(conflictReasons, conflictSamples);
         if (!writes.length && conflicts) throw new Error('All candidates require identity reconciliation');
         cycle.stage('commit');
         for (const batch of batches(writes)) {

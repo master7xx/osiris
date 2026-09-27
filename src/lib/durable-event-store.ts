@@ -1,3 +1,4 @@
+import { refreshUnchangedEvents } from './refresh-unchanged-events';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { FusedEvent } from './event-fusion';
@@ -68,7 +69,9 @@ export class DurableEventStore {
       }
       let cursor = BigInt(meta.rows[0].cursor);
       const result: BatchResult = { epoch: meta.rows[0].epoch, cursor: cursor.toString(), events: [] };
-      for (const write of writes) {
+      const refreshed = await refreshUnchangedEvents(client, writes, { event: storedEventHash, evidence: storedEvidenceKey });
+      if (refreshed) result.events = refreshed;
+      for (const write of refreshed ? [] : writes) {
         const ids = await client.query<{ event_id: string }>(`SELECT DISTINCT event_id FROM osiris_events.identities
           WHERE (source_id, upstream_id) IN (SELECT * FROM unnest($1::text[], $2::text[]))`,
         [write.identities.map(id => id.sourceId), write.identities.map(id => id.upstreamId)]);
