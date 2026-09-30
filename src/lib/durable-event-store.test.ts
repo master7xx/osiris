@@ -126,6 +126,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('1');
   });
 
+  it('retains previously reviewed news parents after live signals expire without exporting raw snapshots', async () => {
+    const item = { ...write({ title: 'News report pending historical review', evidence: [{
+      source_id: 'news:test', source: 'Test', kind: 'editorial' as const, independent: true, weight: 1, url: 'https://example.test/private-key',
+    }] }), identities: [{ sourceId: 'news:test', upstreamId: 'https://example.test/private-key' }] };
+    const stored = await store.commitBatch(randomUUID(), [item]);
+    const before = (await pool.query('SELECT * FROM osiris_events.events')).rows;
+    const report = await identityConflictReport(pool, true, { previousIds: [stored.events[0].id], includeSnapshot: false });
+    expect(report.skipped_candidates).toBe(0);
+    expect(report.snapshotData).toBeUndefined();
+    expect(report.reconciliation?.stored_event_reviews[0].id).toBe(stored.events[0].id);
+    expect(report.reconciliation?.news_identity_review.components[0].action).toBe('review_missing_or_ambiguous_observations');
+    expect(report.reconciliation?.observation_coverage?.[0].status).toBe('not_found_in_signal_store');
+    expect(JSON.stringify(report)).not.toContain('private-key');
+    expect((await pool.query('SELECT * FROM osiris_events.events')).rows).toEqual(before);
+  });
+
   it('batches observations with last duplicate winning, retaining absent sources and their timestamps', async () => {
     const lease = (await acquireCollectorLease(pool, randomUUID()))!;
     await pool.query(`INSERT INTO osiris_events.signals(id,payload,observed_at) VALUES

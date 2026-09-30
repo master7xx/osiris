@@ -1233,8 +1233,8 @@ Fusion prepares digest flags, title tokens, timestamps, evidence URLs and explic
 provider report keys once per signal per call. Candidate indexes cover adapter
 IDs, provider report keys, URLs and adjacent eight-hour time buckets. Signals
 with explicit provider keys cannot enter URL/fuzzy matching; two NWS reports
-without a shared identity/URL cannot enter fuzzy matching. The final predicate,
-whole-cluster hazard veto and earliest matching cluster order remain unchanged.
+without a shared identity/URL cannot enter fuzzy matching. The whole-cluster hazard veto and earliest matching cluster order are retained.
+News matching follows the stricter policy described below.
 Every appended cluster member is indexed, including bridge reports. Indexes are
 local to one call and do not persist signals or change durable identities.
 
@@ -1257,7 +1257,7 @@ npm run events:benchmark-fusion
 npm run events:benchmark-fusion -- 1000 3000 5600
 ```
 
-It compares complete output with the frozen pre-optimization reference under
+It compares complete output with the sequential scanning reference under
 `tools/fusion-benchmark/reference.ts`, for both mixed fuzzy/duplicate data and
 high-cardinality explicit provider reports. A mismatch fails the command;
 reported timings are environment/workload dependent and do not predict live
@@ -1293,3 +1293,69 @@ most ten entries from each. Titles, evidence bodies, URLs and raw upstream keys
 are excluded. Repeated samples can identify persistent conflicts for a read-only
 review; they do not authorize or perform historical reconciliation. These samples
 appear in the `npm run dev` / collector terminal, alongside the existing counters.
+
+
+### News fusion boundaries and historical review
+
+Signals with a `news:` evidence source or RSS/Telegram transport require title
+similarity of at least 0.68 for fuzzy matching, within the existing eight-hour
+window and at most 250 km when both locations are known. City/region coordinates,
+category and publication hour alone no longer establish news identity. Exact
+adapter IDs, provider report keys and shared report URLs keep their precedence,
+with digest/withdrawal and hazard identity gates still applied. Cross-language
+or heavily rewritten reports may remain separate unless exact evidence links
+connect them; this policy does not claim semantic understanding of articles.
+
+Fuzzy news additions must be compatible with every existing cluster member that
+participates in news matching. This blocks title-overlap bridge chains between
+otherwise unrelated reports. Exact report updates can still attach to their
+existing cluster. Sorting and greedy first-cluster choice remain deterministic
+for a given input; permutations may choose different compatible partitions for
+ambiguous overlap chains, but cannot fuzzy-bridge incompatible news endpoints.
+The sequential benchmark reference now uses this same intentional news policy;
+its purpose is to check indexed vs sequential grouping, not equality with the
+superseded geographic news rule.
+
+The read-only reconciliation report includes `news_identity_review`. It groups
+stored parents and current candidates into connected components, with review
+labels `review_split`, `review_merge`, `review_overlap`, `review_consistent` or
+`review_missing_or_ambiguous_observations`. It includes source identity
+fingerprints, observation titles/times/coordinates and current group references,
+while omitting raw upstream keys, URLs and descriptions. Missing observations,
+identities excluded from current fusion, ambiguous group membership, inconsistent
+revisions or unreviewed non-news identities make a proposal incomplete. All
+components remain `executable: false`: current clustering is evidence for review,
+not proof that a historical split or merge is correct. The existing strict
+USGS/GDACS planner remains alongside this news review.
+
+Write the report directly to a new UTF-8 file to avoid PowerShell pipe encoding:
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts --output identity-news-review.json
+```
+
+The conflict-only tool also accepts `--output <new-file.json>`. Existing output
+files are refused, not overwritten. Without this option stdout remains available.
+No historical DB repair is performed by either report command. After changing
+news rules, historical conflicts may increase because previously conflated
+identities are now represented by separate current candidates. An empty live
+conflict list does not establish historical correctness, especially after signals
+expire from the retained window. A reviewed repair still requires a fresh snapshot,
+full identity coverage, revision checks and verification of replay/supersession.
+
+News article keys in the strict provider planner are labelled
+`news_identity_requires_content_review`; `provider_id_unverified` remains for
+unrecognized hazard/provider identities. A verified article key alone does not
+prove that two articles describe the same incident.
+
+To keep previously reviewed stored events in scope after their live conflicts or
+signals expire, pass `--previous-report <earlier-review.json>` to the plan tool.
+It reads UUIDs from `reconciliation.stored_event_reviews`, combines them with
+current conflicts, and reports observation coverage for all their stored keys.
+At most 1000 previous entries are accepted, with strict UUID validation. The
+report remains read-only and omits raw snapshot/history payloads; expired or
+missing evidence remains an explicit blocker. For example:
+
+```powershell
+node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts --previous-report identity-review-20260927-180710.json --output identity-news-history-review.json
+```

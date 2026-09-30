@@ -1,3 +1,4 @@
+import { reviewNewsIdentities } from './news-identity-review';
 import { identityConflictReason } from './collector-identity-conflict';
 import { splitPayloadHash } from './reviewed-event-split';
 import { planIdentityReconciliation } from './identity-reconciliation-plan';
@@ -38,7 +39,7 @@ export function inspectIdentityConflicts(candidates: { id: string; identities: I
   return conflicts;
 }
 
-export async function identityConflictReport(pool: Pool, includePlan = false, snapshotOptions?: { previousIds: string[] }) {
+export async function identityConflictReport(pool: Pool, includePlan = false, snapshotOptions?: { previousIds: string[]; includeSnapshot?: boolean }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -95,7 +96,7 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
           r.payload->>'occurred_at' AS occurred_at,r.payload->'lat' AS lat,r.payload->'lng' AS lng
           FROM osiris_events.revisions r WHERE r.event_id=e.id ORDER BY r.revision DESC LIMIT 3) x) AS recent_revisions
         FROM osiris_events.events e WHERE e.id=ANY($1::uuid[]) ORDER BY e.id`, [affected])).rows;
-      if (snapshotOptions) {
+      if (snapshotOptions && snapshotOptions.includeSnapshot !== false) {
         const history = (await client.query(`SELECT event_id,revision,committed_at,payload
           FROM osiris_events.revisions WHERE event_id=ANY($1::uuid[])
           ORDER BY event_id,revision LIMIT 100001`, [affected])).rows;
@@ -106,6 +107,7 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
       }
       reconciliation = { mode: 'dry-run', executable: false, epoch: meta.epoch,
         groups: planIdentityReconciliation(analysisRows.map(r => r.payload as IncomingEvent), allLinks),
+        news_identity_review: reviewNewsIdentities(analysisRows.map(r => r.payload as IncomingEvent), allLinks, now),
         ...(snapshotOptions ? { observation_coverage: observationCoverage, analysis_signal_count: analysisRows.length } : {}),
         stored_event_reviews: previews.map(({ payload, ...preview }) => ({ ...preview, payload_hash: splitPayloadHash(payload) })),
         notes: ['Proposals require review of source semantics and historical payloads; the internal mutation primitive is not callable from this report.',

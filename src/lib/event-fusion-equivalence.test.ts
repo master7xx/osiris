@@ -14,7 +14,7 @@ function row(id: string, extra: Partial<IncomingEvent> = {}): IncomingEvent {
 }
 function urls(...values: string[]) { return values.map(url => ({ source_id: 'editorial', source: 'Editorial', kind: 'editorial' as const, weight: 1, independent: true, url })); }
 
-describe('fusion equivalence with the frozen pre-optimization implementation', () => {
+describe('fusion equivalence with sequential scanning under the current policy', () => {
   it.each([1, 17, 42, 321])('preserves complete output and pair decisions for mixed data, seed %s', seed => {
     const events = fusionFixture(180, seed);
     compare(events); compare([...events].reverse(), 30);
