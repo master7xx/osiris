@@ -82,3 +82,8 @@ it('checks proximity across parents, independent of input order', () => {
   signals[1].occurred_at = '2026-09-15T01:00:00Z';
   expect(planIdentityReconciliation(signals, links).every(g => !g.pair_reviews.length)).toBe(true);
 });
+it('labels news article identities as requiring content review rather than unverified hazard provider IDs', () => {
+  const plan = planIdentityReconciliation([signal('news:1','article','news:bbc')], [link('article','news:bbc')])[0];
+  expect(plan.blockers).toEqual(['news_identity_requires_content_review']);
+  expect(plan.proposed_changes).toBeNull();
+});

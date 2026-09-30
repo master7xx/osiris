@@ -158,6 +158,10 @@ function categoryFamily(category: EventCategory): string {
   return category;
 }
 
+export function isNewsEvent(event: IncomingEvent): boolean {
+  return event.evidence.some(item => item.source_id.startsWith('news:') || item.transport === 'rss' || item.transport === 'telegram');
+}
+
 interface PreparedEvent {
   event: IncomingEvent;
   digest: boolean;
@@ -166,6 +170,7 @@ interface PreparedEvent {
   urls: Set<string>;
   reports: Set<string>;
   nws: boolean;
+  news: boolean;
 }
 
 function prepareEvent(event: IncomingEvent): PreparedEvent {
@@ -175,6 +180,7 @@ function prepareEvent(event: IncomingEvent): PreparedEvent {
     urls: new Set(event.evidence.flatMap(item => item.url ? [item.url] : [])),
     reports: new Set(event.evidence.flatMap(item => item.upstream_id ? [JSON.stringify([item.source_id, item.upstream_id])] : [])),
     nws: event.evidence.some(item => item.source_id === 'noaa-nws'),
+    news: isNewsEvent(event),
   };
 }
 
@@ -191,6 +197,12 @@ function distinctHazardIdentities(a: IncomingEvent, b: IncomingEvent): boolean {
 
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   return shouldFusePrepared(prepareEvent(a), prepareEvent(b));
+}
+
+function exactPreparedMatch(left: PreparedEvent, right: PreparedEvent): boolean {
+  if (left.event.id === right.event.id) return true;
+  if (left.reports.size || right.reports.size) return [...left.reports].some(key => right.reports.has(key));
+  return [...left.urls].some(url => right.urls.has(url));
 }
 
 function shouldFusePrepared(left: PreparedEvent, right: PreparedEvent): boolean {
@@ -211,6 +223,10 @@ function shouldFusePrepared(left: PreparedEvent, right: PreparedEvent): boolean 
   const distance = haversineKm(a, b);
   const sameCategory = a.category === b.category;
   const sameFamily = categoryFamily(a.category) === categoryFamily(b.category);
+
+  // News locations often denote a city/region centroid, not a precise incident.
+  // Require strong title overlap; geography/time alone cannot identify a report.
+  if (left.news || right.news) return similarity >= 0.68 && (distance === undefined || distance <= 250);
 
   // Earthquake sequences can contain many real aftershocks in the same area.
   // Without a shared identity, require both time and distance; titles alone
@@ -404,7 +420,11 @@ export function fuseEvents(events: IncomingEvent[], options: { now?: number; lim
     for (const position of candidates) {
       const rows = clusters[position];
       if (rows.some(existing => distinctHazardIdentities(existing.event, row.event))) continue;
-      if (rows.some(existing => { comparisons++; return shouldFusePrepared(existing, row); })) {
+      // A news bridge must not connect otherwise incompatible reports.
+      const compare = (existing: PreparedEvent) => { comparisons++; return shouldFusePrepared(existing, row); };
+      const exact = rows.some(existing => exactPreparedMatch(existing, row) && compare(existing));
+      if (!exact && rows.some(existing => (existing.news || row.news) && !compare(existing))) continue;
+      if (rows.some(compare)) {
         selected = position; break;
       }
     }

@@ -7,7 +7,7 @@ export function fusionFixture(count: number, seed = 17): IncomingEvent[] {
   const now = Date.parse('2026-09-26T22:00:00Z');
   const categories: EventCategory[] = ['weather', 'earthquake', 'conflict', 'flood', 'cyber', 'other'];
   return Array.from({ length: count }, (_, i) => {
-    const source = i % 10 < 7 ? 'noaa-nws' : i % 10 === 7 ? 'usgs-earthquakes' : `news-${i % 5}`;
+    const source = i % 10 < 7 ? 'noaa-nws' : i % 10 === 7 ? 'usgs-earthquakes' : `news:${i % 5}`;
     const provider = source === 'noaa-nws' || source === 'usgs-earthquakes';
     const group = Math.floor(random() * Math.max(10, count / 4));
     return {

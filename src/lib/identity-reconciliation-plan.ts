@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { IncomingEvent } from './event-fusion';
+import { isNewsEvent, type IncomingEvent } from './event-fusion';
 
 export interface StoredIdentityLink {
   source_id: string; upstream_id: string; event_id: string; revision: string;
@@ -16,6 +16,7 @@ function providerIdentity(signal: IncomingEvent) {
 
 /** Review proposals, never executable mutations or automatically allocated UUIDs. */
 export function planIdentityReconciliation(signals: IncomingEvent[], stored: StoredIdentityLink[]) {
+  const newsSources = new Set(signals.filter(isNewsEvent).flatMap(signal => signal.evidence.map(item => item.source_id)));
   const observations = new Map<string, Set<string>>();
   for (const signal of signals) {
     const provider = providerIdentity(signal);
@@ -39,7 +40,8 @@ export function planIdentityReconciliation(signals: IncomingEvent[], stored: Sto
       const ids = observations.get(k);
       let reason: string | null = null;
       if (!ids) reason = 'identity_not_in_retained_signals';
-      else if (ids.has('unknown')) reason = 'provider_id_unverified';
+      else if (ids.has('unknown')) reason = link.source_id.startsWith('news:') || newsSources.has(link.source_id)
+        ? 'news_identity_requires_content_review' : 'provider_id_unverified';
       else if (ids.size !== 1) reason = 'identity_shared_by_distinct_provider_ids';
       if (reason) {
         blockers.add(reason);

@@ -1,4 +1,4 @@
-// Frozen pre-optimization oracle (PR 76). Test/benchmark only; never imported by runtime.
+// Sequential scanning oracle: PR 76 algorithm with the current news policy. Test/benchmark only.
 import { explicitReportMatch } from '../../src/lib/upstream-report';
 import { isNewsDigest } from '../../src/lib/event-text';
 export type EventCategory =
@@ -195,6 +195,9 @@ export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
   const sameCategory = a.category === b.category;
   const sameFamily = categoryFamily(a.category) === categoryFamily(b.category);
 
+  const news = (event: IncomingEvent) => event.evidence.some(item => item.source_id.startsWith('news:') || item.transport === 'rss' || item.transport === 'telegram');
+  if (news(a) || news(b)) return similarity >= 0.68 && (distance === undefined || distance <= 250);
+
   // Earthquake sequences can contain many real aftershocks in the same area.
   // Without a shared identity, require both time and distance; titles alone
   // cannot distinguish separate earthquakes or establish their location.
@@ -315,6 +318,14 @@ function fuseCluster(items: IncomingEvent[], now: number): FusedEvent {
   };
 }
 
+function sameReport(a: IncomingEvent, b: IncomingEvent): boolean {
+  if (a.id === b.id) return true;
+  const explicit = explicitReportMatch(a.evidence, b.evidence);
+  if (explicit !== undefined) return explicit;
+  const urls = evidenceUrls(a);
+  return b.evidence.some(item => Boolean(item.url && urls.has(item.url)));
+}
+
 export function fuseEvents(events: IncomingEvent[], options: { now?: number; limit?: number } = {}): FusedEvent[] {
   const now = options.now ?? Date.now();
   const valid = events
@@ -324,6 +335,8 @@ export function fuseEvents(events: IncomingEvent[], options: { now?: number; lim
   const clusters: IncomingEvent[][] = [];
   for (const event of valid) {
     const cluster = clusters.find(rows => !rows.some(existing => distinctHazardIdentities(existing, event))
+      && (rows.some(existing => sameReport(existing, event) && shouldFuseEvents(existing, event)) || !rows.some(existing => (existing.evidence.some(item => item.source_id.startsWith('news:') || item.transport === 'rss' || item.transport === 'telegram')
+        || event.evidence.some(item => item.source_id.startsWith('news:') || item.transport === 'rss' || item.transport === 'telegram')) && !shouldFuseEvents(existing, event)))
       && rows.some(existing => shouldFuseEvents(existing, event)));
     if (cluster) cluster.push(event);
     else clusters.push([event]);
