@@ -1359,3 +1359,35 @@ missing evidence remains an explicit blocker. For example:
 ```powershell
 node --env-file=.env.local --import tsx tools/identity-reconciliation-plan.ts --previous-report identity-review-20260927-180710.json --output identity-news-history-review.json
 ```
+
+### Provider collection links and historical context
+
+NASA FIRMS identity uses the existing adapter ID (sensor, 0.75-degree grid cell,
+UTC acquisition day), not the FIRMS homepage. Same cell/day observations refresh
+one event; different cells, sensors and days remain independent. EONET uses its
+event ID and Cloudflare outages use annotation/start-time plus country ID.
+Collection links remain clickable provenance. Existing retained payloads from
+these adapters receive the same identity in memory during fusion and observation
+indexing; input payloads and historical database links are not rewritten.
+Explicit report identities take precedence over fuzzy corroboration, so these
+provider reports are not automatically combined with different provider keys.
+A grid cell/day is a satellite observation aggregate, not a verified wildfire
+incident; a fire spanning cells or midnight may appear as several events.
+
+Previously stored collection aliases remain historical review items. The first
+correctly identified FIRMS observations can create independent events while the
+old composite record remains; no migration silently splits or deletes it.
+
+Read saved revision contexts offline from a checksummed snapshot:
+
+```powershell
+node --import tsx tools/identity-history-review.ts identity-history-snapshot.json --output identity-history-context-review.json
+```
+
+The tool requires no database connection. It distinguishes singleton stored
+contexts, composite-only contexts, missing history and the known FIRMS collection
+alias. It exports hashed identity references, titles, coordinates and revision
+references, without raw keys/URLs/descriptions. Singleton stored contexts are
+not recovered original articles; composite content cannot be assigned to each
+individual source. All findings are review-only and cannot authorize a mutation.
+See [the September 30 history investigation](docs/identity-history-20260930.md).

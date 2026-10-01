@@ -139,6 +139,7 @@ export function parseEonetEvents(payload: unknown, now = Date.now()): IncomingEv
       severity: naturalSeverity(category, geometry, row.geometry.length),
       evidence: [{
         source_id: 'nasa-eonet',
+        upstream_id: `eonet:${row.id}`,
         source: 'NASA EONET',
         kind: 'official',
         independent: true,
@@ -274,6 +275,7 @@ export function clusterFirmsCsv(csv: string, sourceId = 'viirs', sourceLabel = '
         severity,
         evidence: [{
           source_id: `nasa-firms-${sourceId}`,
+          upstream_id: `firms:${sourceId}:${cluster.key}:${cluster.latestAt.slice(0, 10)}`,
           source: sourceLabel,
           kind: 'sensor' as const,
           independent: true,
@@ -367,6 +369,7 @@ export function parseCloudflareOutages(payload: unknown, now = Date.now()): Inco
         severity,
         evidence: [{
           source_id: 'cloudflare-radar-outages',
+          upstream_id: `cloudflare-outage:${annotation.id || start}:${code}`,
           source: 'Cloudflare Radar',
           kind: 'sensor',
           independent: true,
