@@ -1,9 +1,10 @@
+import { withProviderReportIdentity } from './provider-report-identity';
 import type { EventEvidence, FusedEvent, IncomingEvent } from './event-fusion';
 const key = (evidence: EventEvidence) => JSON.stringify([evidence.source_id, evidence.upstream_id ?? null, evidence.url ?? null, evidence.published_at ?? null]);
 /** Last actual upstream observation, never the time a retained signal was reprocessed. */
 export function observationIndex(rows: { payload: IncomingEvent; observed_at: string | Date }[]) {
   const times = new Map<string, number>();
-  for (const row of rows) for (const evidence of row.payload.evidence) {
+  for (const row of rows) for (const evidence of withProviderReportIdentity(row.payload).evidence) {
     const stamp = new Date(row.observed_at).getTime();
     if (Number.isFinite(stamp)) times.set(key(evidence), Math.max(times.get(key(evidence)) ?? 0, stamp));
   }

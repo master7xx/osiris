@@ -1,3 +1,5 @@
+import { clusterFirmsCsv } from './event-signals';
+import { fuseEvents } from './event-fusion';
 import { persistCollectorSignals } from './collector-signal-store';
 import { createEventDatabasePool } from './event-database-pool';
 import { lookupCollectorIdentities } from './collector-identity-lookup';
@@ -44,6 +46,22 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('UPDATE osiris_events.metadata SET cursor=0, retention_floor=0');
   });
   afterAll(async () => { await pool?.end(); });
+
+  it('persists FIRMS cells independently without reusing a poisoned collection alias', async () => {
+    const poisoned = await store.commitBatch(randomUUID(), [{ ...write(), identities: [
+      { sourceId: 'nasa-firms-viirs', upstreamId: 'https://firms.modaps.eosdis.nasa.gov/' } ] }]);
+    const rows = clusterFirmsCsv('latitude,longitude,acq_date,acq_time,frp\n-20.4,126.5,2026-09-30,1200,42\n9.6,-63.5,2026-09-30,1200,42');
+    const fused = fuseEvents(rows, { now: Date.parse('2026-09-30T13:00:00Z') });
+    const writes = fused.map(event => ({ event, identities: collectorIdentities(event), expectedRevision: null }));
+    const first = await store.commitBatch(randomUUID(), writes);
+    expect(new Set(first.events.map(row => row.id)).size).toBe(2);
+    expect(first.events.every(row => row.id !== poisoned.events[0].id)).toBe(true);
+    const again = await store.commitBatch(randomUUID(), writes.map((item, index) => ({ ...item, expectedRevision: first.events[index].revision })));
+    expect(again).toEqual(first);
+    expect((await pool.query('SELECT count(*) FROM osiris_events.revisions')).rows[0].count).toBe('3');
+    const old = (await pool.query('SELECT event_id FROM osiris_events.identities WHERE upstream_id=$1', ['https://firms.modaps.eosdis.nasa.gov/'])).rows;
+    expect(old[0].event_id).toBe(poisoned.events[0].id);
+  });
 
   it('refreshes 300 unchanged events in bounded queries without new revisions or cursor movement', async () => {
     const observedAt = new Date(Date.now() - 30000).toISOString();

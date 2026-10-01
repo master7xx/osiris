@@ -1,3 +1,4 @@
+import { withProviderReportIdentity } from './provider-report-identity';
 import { isNewsDigest } from './event-text';
 export type EventCategory =
   | 'conflict'
@@ -174,6 +175,7 @@ interface PreparedEvent {
 }
 
 function prepareEvent(event: IncomingEvent): PreparedEvent {
+  event = withProviderReportIdentity(event);
   return {
     event, digest: isNewsDigest(event.title, event.description), time: toMs(event.occurred_at),
     words: tokens(event.title),

@@ -1,3 +1,4 @@
+import { withProviderReportIdentity } from '../../src/lib/provider-report-identity';
 // Sequential scanning oracle: PR 76 algorithm with the current news policy. Test/benchmark only.
 import { explicitReportMatch } from '../../src/lib/upstream-report';
 import { isNewsDigest } from '../../src/lib/event-text';
@@ -174,6 +175,7 @@ function distinctHazardIdentities(a: IncomingEvent, b: IncomingEvent): boolean {
 }
 
 export function shouldFuseEvents(a: IncomingEvent, b: IncomingEvent): boolean {
+  a = withProviderReportIdentity(a); b = withProviderReportIdentity(b);
   if (isNewsDigest(a.title, a.description) !== isNewsDigest(b.title, b.description)) return false;
   if (Boolean(a.withdrawn) !== Boolean(b.withdrawn)) return false;
   if (a.id === b.id) return true;
@@ -328,7 +330,7 @@ function sameReport(a: IncomingEvent, b: IncomingEvent): boolean {
 
 export function fuseEvents(events: IncomingEvent[], options: { now?: number; limit?: number } = {}): FusedEvent[] {
   const now = options.now ?? Date.now();
-  const valid = events
+  const valid = events.map(withProviderReportIdentity)
     .filter(event => event.title.trim().length >= 4 && toMs(event.occurred_at) > 0)
     .sort((a, b) => toMs(b.occurred_at) - toMs(a.occurred_at));
 
