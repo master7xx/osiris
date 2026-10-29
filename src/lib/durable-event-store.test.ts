@@ -371,6 +371,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query('INSERT INTO osiris_events.signals (id,payload) VALUES ($1,$2)', ['diagnostic', JSON.stringify(signal)]);
     const report = await identityConflictReport(pool);
     expect(report.signal_count).toBe(1);
+    expect(report.observation_status).toBe('signals_available');
     expect(report.candidate_count).toBe(1);
     expect(report.skipped_candidates).toBe(1);
     expect(report.conflicts[0].reason).toBe('multiple_stored_events');
@@ -414,6 +415,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL durable event transactions', () => {
     await pool.query("UPDATE osiris_events.signals SET observed_at=clock_timestamp()-interval '72 hours'");
     const expired = await identityConflictReport(pool, true, { previousIds: [result.events[0].id] });
     expect(expired.signal_count).toBe(0);
+    expect(expired.observation_status).toBe('no_signals_in_window');
     expect(expired.reconciliation?.analysis_signal_count).toBe(2);
     expect(expired.reconciliation?.groups[0].action).toBe('propose_split_for_review');
     expect(expired.reconciliation?.observation_coverage?.map(row => row.status)).toEqual(['outside_window', 'outside_window']);

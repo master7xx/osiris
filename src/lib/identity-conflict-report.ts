@@ -47,6 +47,7 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
     await client.query("SET LOCAL lock_timeout='2s'");
     const meta = (await client.query('SELECT epoch,cursor,clock_timestamp() AS sampled_at FROM osiris_events.metadata WHERE singleton')).rows[0];
     if (!meta) throw new Error('Event store requires migration');
+    const collector = (await client.query('SELECT last_success_at FROM osiris_events.collector WHERE singleton')).rows[0];
     const now = new Date(meta.sampled_at).getTime();
     const rows = (await client.query(`SELECT id,payload,observed_at FROM osiris_events.signals
       WHERE observed_at >= $1::timestamptz - interval '48 hours' ORDER BY id LIMIT 10001`, [meta.sampled_at])).rows;
@@ -118,11 +119,14 @@ export async function identityConflictReport(pool: Pool, includePlan = false, sn
     }
     await client.query('COMMIT');
     return { sampled_at: meta.sampled_at, cursor: meta.cursor, signal_count: rows.length,
+      observation_status: rows.length ? 'signals_available' : 'no_signals_in_window',
+      collector_last_success_at: collector?.last_success_at ?? null,
       candidate_count: candidates.length, skipped_candidates: conflicts.length, conflicts,
       ...(includePlan ? { reconciliation } : {}),
       ...(snapshotData ? { snapshotData } : {}),
       notes: ['Read-only reconstruction from retained signals, not a recording of the previous collector cycle.',
         'Fusion time, signal order and concurrent collection can change candidates and skip counts.',
+        'No signals in the window means conflicts cannot be assessed. A successful collector cycle does not prove every source was available or identify the running code version.',
         'Identity fingerprints are SHA-256 correlation keys, not anonymization; raw URLs, titles and payloads are omitted.',
         'No events, identities, revisions or replay cursors were modified.'] };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
