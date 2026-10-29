@@ -34,6 +34,10 @@ test('rejects damaged cache, retains a coherent checkpoint on outage and recover
   await page.goto('/tools/camera-browser/?events');
   await expect(page.getByTestId('sync-state')).toHaveText('ready');
   await expect(page.getByRole('listitem')).toHaveText('Initial event');
+  await page.getByRole('button', { name: 'Select map event' }).click();
+  await expect(page.getByTestId('map-selection')).toHaveText('a:1:1:a:1');
+  await page.getByRole('button', { name: 'Select map event' }).click();
+  await expect(page.getByTestId('map-selection')).toHaveText('a:2:2:a:2');
   expect(bootstrapCount).toBe(1);
   expect(cursors).toEqual([]);
   const before = await checkpoint();

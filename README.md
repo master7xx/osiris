@@ -89,7 +89,10 @@ snapshot shared with map markers. Category, minimum severity, confidence and
 located-only filters apply to both views. Category choices stay stable across
 refreshes; a category with no events shows an empty list, and changing filters
 returns the list to its beginning. Clicking a card locates a reliably
-positioned event; clicking its marker selects the card and opens the panel.
+positioned event; clicking its marker selects the card, opens the panel and moves
+the map to the event's stored coordinates (at least zoom level 6). The position
+reflects the source's reported location and can represent an approximate region.
+Double-clicking a marker repeats this selection without triggering map double-click zoom.
 Unlocated events stay in the list. Expanded cards show supporting sources;
 severity and corroboration confidence remain separate fields. All sources use the
 same card typography (13 px message text, 11 px metadata). Severity badges show
