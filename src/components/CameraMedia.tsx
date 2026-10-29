@@ -88,6 +88,7 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
   const failed = ['NETWORK', 'DECODE', 'UNSUPPORTED', 'MEDIA', 'LOAD FAILED', 'OFFLINE AT SOURCE', 'TIMEOUT'].includes(label);
   const color = failed ? 'text-red-300' : label === 'PLAYING' ? 'text-green-300' : ['LOADED', 'EMBED LOADED'].includes(label) ? 'text-sky-300' : 'text-amber-300';
   const format = kind === 'mp4' ? 'CLIP' : kind === 'jpg' ? 'SNAPSHOT' : kind.toUpperCase();
+  const displayedUrl = !unavailable && failed && snapshot && ['mp4', 'hls'].includes(kind) ? snapshot : !unavailable ? url : undefined;
   return <div className="relative h-full w-full bg-black text-white">
     {!unavailable && url && (kind === 'mp4' || kind === 'hls' ? <video ref={video} className={`h-full w-full object-contain ${failed && snapshot ? 'opacity-0' : ''}`} muted playsInline controls loop={kind === 'mp4'}
       onPlaying={() => setState('PLAYING')} onWaiting={() => setState('BUFFERING')} onPause={() => setState('PAUSED')} onError={() => setState(mediaErrorLabel(video.current?.error?.code))} />
@@ -103,6 +104,11 @@ function MediaSession({ camera, overview }: { camera: PlaybackCamera; overview: 
       title={`${format} · ${label}\n${check ? `SERVER ${check.httpStatus ? `HTTP ${check.httpStatus}` : check.state} · ${check.checkedAt || 'not checked'}` : 'Server check pending'}\nServer HEAD does not verify playback or capture time.`}>
       {format} · {label}{failed && check?.httpStatus && check.httpStatus >= 400 ? ` · SERVER ${check.httpStatus}` : ''}
     </div>
+    {!overview && <div className="absolute left-1 top-1 z-20 flex max-w-[50%] flex-col items-start rounded-sm bg-black/75 px-1.5 py-0.5 text-[9px] leading-tight text-white/70" aria-label="Camera source details">
+      <span className="max-w-full truncate" title={camera.source || 'Source unknown'}>Source: {camera.source || 'Unknown'}</span>
+      {displayedUrl && <span className="max-w-full truncate" title={displayedUrl}>Media: {displayedUrl}</span>}
+      {camera.external_url && <span className="max-w-full truncate" title={camera.external_url}>Page: {camera.external_url}</span>}
+    </div>}
     {!overview && camera.external_url && <a href={camera.external_url} target="_blank" rel="noopener noreferrer" className="absolute bottom-9 left-2 z-30 bg-black/80 px-2 text-xs text-sky-300">Open source</a>}
     {!overview && (failed || label === 'TIMEOUT') && <button className="absolute bottom-9 right-2 z-30 bg-black/80 px-2 text-xs" onClick={() => { setState('CONNECTING'); setRevision(Date.now()); }}>Retry</button>}
   </div>;
