@@ -789,6 +789,13 @@ implemented; a healthy group response does not establish catalog completeness.
 
 ### Read-only identity conflict report
 
+The report exposes `observation_status`: `no_signals_in_window` means no live
+identity conflicts can be assessed; `signals_available` only means that some
+signals exist, not that all providers are healthy. `collector_last_success_at`
+is the last successful collector cycle recorded in the same database snapshot,
+or null when unavailable. It does not identify the running code version or prove
+the freshness of every provider. These fields also appear in reconciliation plans.
+
 ```powershell
 node --env-file=.env.local --import tsx tools/identity-conflict-report.ts
 ```
