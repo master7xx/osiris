@@ -66,7 +66,7 @@ function useWorldEventsState(onMapSelect: () => void) {
   const selectEvent = useCallback((id: string, origin: 'map' | 'list') => {
     setSelectedId(id);
     if (origin === 'map') { setMapSelection(value => value + 1); openFeed(); }
-    else setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
+    setLocateRequest(previous => ({ id, version: (previous?.version ?? 0) + 1 }));
   }, [openFeed]);
   const freshness = eventFreshness(snapshot?.generated_at, now, fromCache);
   return { openFeed, panelRequest, snapshot, events, mappable, retainedIds, matching: view.matching, sources: view.sources, filters, setFilters, selectedId, selectEvent, mapSelection, locateRequest,

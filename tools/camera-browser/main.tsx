@@ -15,6 +15,8 @@ function EventRecoveryHarness() {
     <p data-testid="sync-state">{events.loading ? 'loading' : events.error ? 'error' : 'ready'}</p>
     <p data-testid="cache-state">{events.fromCache ? 'cached' : 'fresh'}</p>
     <p data-testid="sync-error">{events.error}</p>
+    <button onClick={() => events.selectEvent('a', 'map')}>Select map event</button>
+    <p data-testid="map-selection">{events.selectedId}:{events.mapSelection}:{events.panelRequest}:{events.locateRequest?.id}:{events.locateRequest?.version}</p>
     <ul>{events.snapshot?.events.map(event => <li key={event.id}>{event.title}</li>)}</ul>
   </main>;
 }

@@ -19,7 +19,8 @@ export default function BreakingNewsMarkers({ mapRef }: { mapRef: React.RefObjec
       button.type = 'button'; button.title = event.title; button.setAttribute('aria-label', event.title);
       button.style.cssText = 'width:26px;height:26px;border-radius:50%;border:2px solid #00d9ff;background:#053753;color:white;cursor:pointer;font-size:15px;';
       button.textContent = '≡';
-      button.addEventListener('click', () => selectEvent(event.id, 'map'));
+      button.addEventListener('click', e => { e.stopPropagation(); selectEvent(event.id, 'map'); });
+      button.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); });
       const marker = new maplibregl.Marker({ element: button }).setLngLat([event.lng!, event.lat!]).addTo(map);
       current.set(event.id, marker);
     }
