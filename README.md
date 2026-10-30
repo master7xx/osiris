@@ -1112,18 +1112,15 @@ not move the map; the Locate button remains available for recentering. Native
 video controls continue to control their own player.
 
 
-### Russia and Belarus camera discovery
+### Camera discovery
 
-Russia and Belarus camera discovery adds separately capped OpenCCTV geographic
-samples to the existing Europe and West Asia results. The shared marker index and
-cached batch records are reused, and entries from the extra samples are retained
-only when the provider identifies their country as Russia or Belarus. The sample
-boxes overlap neighboring countries and are not administrative boundaries; their
-diagnostic scope counts include all records returned in each box. The optional
-samples have a seven-second response budget and can warm the cache for a later
-request. Caps and provider metadata limit coverage, and an indexed camera is not
-proof that its feed works. Selecting a camera continues to run the existing
-on-demand server HEAD diagnostic; playback and freshness require separate checks.
+OpenCCTV discovery reuses a shared marker index and cached batch records. Bounded
+geographic samples supplement broader results; sample boxes are not administrative
+boundaries, and diagnostic scope counts include all records returned in each box.
+Optional samples have a seven-second response budget and can warm the cache for a
+later request. Caps and provider metadata limit coverage, and an indexed camera is
+not proof that its feed works. Selecting a camera runs the existing on-demand server
+HEAD diagnostic; playback and freshness require separate checks.
 
 ### Browser event checkpoint recovery
 
