@@ -12,6 +12,11 @@ test('overview stays still; selected area plays four clips and releases them on 
   expect(downloads).toBe(0);
   await page.getByRole('button', { name: 'Open camera', exact: true }).click();
   await expect(page.locator('video')).toHaveCount(4);
+  const details = page.getByLabel('Camera source details');
+  await expect(details).toHaveCount(4);
+  await expect(details.first()).toContainText('Source: TfL');
+  await expect(details.first()).toContainText('jamcams.tfl.gov.uk/0.mp4');
+  await expect(page.getByTestId('overview').getByLabel('Camera source details')).toHaveCount(0);
   await expect(page.getByText('CLIP · PLAYING', { exact: true })).toHaveCount(4);
   await expect(page.getByRole('region', { name: 'Camera viewing area' }).getByRole('status').first()).toHaveAttribute('title', /SERVER HTTP 404/);
   await page.screenshot({ path: 'test-results/camera-desktop.png' });
@@ -128,6 +133,7 @@ test('reviewed Windy variant opens HLS as main and falls back to its snapshot on
   await expect(page.locator('video')).toHaveCount(1);
   await expect(page.getByText(/NEARBY/)).toHaveCount(0);
   await expect(page.getByAltText('Source snapshot fallback')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByLabel('Camera source details')).toContainText('imgproxy.windy.com');
   await expect(page.getByText('SNAPSHOT FALLBACK · FRESHNESS UNVERIFIED')).toBeVisible();
   await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
   await expect(page.getByRole('region', { name: 'Camera viewing area' })).toHaveAttribute('data-expanded', 'true');

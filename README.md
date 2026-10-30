@@ -1067,6 +1067,11 @@ that its embedded player is playing. HTTP 200 does not prove a current picture;
 media errors are not fabricated HTTP statuses. Sources that cannot play directly
 may still be opened using their source link.
 
+Each active camera frame shows its catalog source and the current media URL in a
+small top-left label, plus the source page URL when supplied. Long addresses are
+truncated visually; hover to inspect them. Resolved embeds and snapshot fallbacks
+show their current address. A missing source or page is not inferred from proximity.
+
 `GET /api/cctv/diagnostics?id=...` accepts up to eight catalog camera IDs, never
 user-supplied target URLs. Camera catalog responses register HTTPS targets for
 one hour. Demand-driven checks are shared within a server process, at most two
