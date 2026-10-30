@@ -73,6 +73,16 @@ const REGIONS: Record<string, RegionSpec> = {
     cap: 1200,
     cellDegrees: 3,
   },
+  russia: {
+    areas: [{ minLat: 41, maxLat: 82, minLng: 19, maxLng: 180 }],
+    cap: 800,
+    cellDegrees: 2,
+  },
+  belarus: {
+    areas: [{ minLat: 51, maxLat: 57, minLng: 23, maxLng: 33 }],
+    cap: 400,
+    cellDegrees: 0.5,
+  },
 };
 
 /** The index, as three parallel arrays. */
@@ -336,6 +346,26 @@ export const fetchEastAsiaCameras = cachedSource('eastasia', loader('eastasia', 
 export const fetchSeAsiaCameras = cachedSource('seasia', loader('seasia', 'Southeast Asia', REGIONS.seasia));
 const fetchWestAsiaOpenCctvCameras = cachedSource('westasia-occ', loader('westasia', 'West, Central & North Asia', REGIONS.westasia));
 export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('europe', 'Europe', REGIONS.europe));
+const fetchRussiaOpenCctv = cachedSource('russia-occ', loader('russia', 'Russia area', REGIONS.russia));
+const fetchBelarusOpenCctv = cachedSource('belarus-occ', loader('belarus', 'Belarus area', REGIONS.belarus));
+
+/** Geographic boxes include neighboring countries; use provider country metadata. */
+export async function fetchRussiaBelarusOpenCctvCameras(): Promise<CctvCamera[]> {
+  const [russia, belarus] = await Promise.all([fetchRussiaOpenCctv(), fetchBelarusOpenCctv()]);
+  const seen = new Map<string, CctvCamera>();
+  for (const camera of [...russia, ...belarus]) {
+    if (['RU', 'RUSSIA', 'BY', 'BELARUS'].includes(camera.country.trim().toUpperCase())) seen.set(camera.id, camera);
+  }
+  return [...seen.values()];
+}
+
+async function optionalRegionalCameras(): Promise<CctvCamera[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    fetchRussiaBelarusOpenCctvCameras().finally(() => { if (timer) clearTimeout(timer); }),
+    new Promise<CctvCamera[]>(resolve => { timer = setTimeout(() => resolve([]), 7000); }),
+  ]);
+}
 
 /**
  * The northern-Eurasia viewport router sends Russia/Siberia directly to
@@ -343,13 +373,15 @@ export const fetchEuropeOpenCctvCameras = cachedSource('europe-occ', loader('eur
  * Eurasia layer that global/europe-live requests already receive.
  */
 export async function fetchWestAsiaCameras(): Promise<CctvCamera[]> {
-  const [openCctv, windy] = await Promise.all([
+  const [openCctv, windy, regional] = await Promise.all([
     fetchWestAsiaOpenCctvCameras(),
     fetchWindyEurasiaCameras(),
+    optionalRegionalCameras(),
   ]);
 
   const seen = new Map<string, CctvCamera>();
   for (const camera of openCctv) seen.set(camera.id, camera);
   for (const camera of windy) seen.set(camera.id, camera);
+  for (const camera of regional) seen.set(camera.id, camera);
   return [...seen.values()];
 }

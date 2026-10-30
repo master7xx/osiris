@@ -1,5 +1,5 @@
 import type { CctvCamera } from './types';
-import { fetchEuropeOpenCctvCameras } from './opencctv';
+import { fetchEuropeOpenCctvCameras, fetchRussiaBelarusOpenCctvCameras } from './opencctv';
 import { fetchAfricaOpenCctvCameras, fetchLatamOpenCctvCameras } from './opencctv-world';
 import {
   fetchWindyAfricaCameras,
@@ -68,13 +68,14 @@ export async function fetchAfricaLiveCameras(): Promise<CctvCamera[]> {
 }
 
 export async function fetchEuropeLiveCameras(): Promise<CctvCamera[]> {
-  const [openCctv, windyEurope, windyEurasia] = await Promise.all([
+  const [openCctv, windyEurope, windyEurasia, regional] = await Promise.all([
     optionalOpenCctv(fetchEuropeOpenCctvCameras),
     fetchWindyEuropeCameras(),
     fetchWindyEurasiaCameras(),
+    optionalOpenCctv(fetchRussiaBelarusOpenCctvCameras),
   ]);
 
   /* Eurasia is included here so a global/region=all request gains Russia and
      Siberia coverage as well as the dedicated westasia viewport path. */
-  return mergeById(EUROPE_SKYLINE_CAMERAS, openCctv, windyEurope, windyEurasia);
+  return mergeById(EUROPE_SKYLINE_CAMERAS, openCctv, windyEurope, windyEurasia, regional);
 }
